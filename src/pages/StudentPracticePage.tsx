@@ -15,7 +15,8 @@ import {
   Info, 
   AlertCircle, 
   RotateCcw,
-  Lock
+  Lock,
+  CheckCircle2
 } from 'lucide-react';
 
 export const StudentPracticePage: React.FC = () => {
@@ -50,6 +51,7 @@ export const StudentPracticePage: React.FC = () => {
 
   // State: Submit Modal & Copy
   const [showSubmitModal, setShowSubmitModal] = useState<boolean>(false);
+  const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
@@ -363,7 +365,13 @@ sys.stderr = StringIO()
         setIsSubmitted(true);
         setShowSubmitModal(false);
         setSaveStatus('saved');
-        alert('Pekerjaan Anda berhasil dikumpulkan dan terkunci.');
+        setSubmission(prev => prev ? ({
+          ...prev,
+          status: 'submitted',
+          submitted_at: now,
+          code,
+        }) : null);
+        setShowSuccessModal(true);
       }
     } catch {
       alert('Terjadi kesalahan saat mengumpulkan tugas.');
@@ -693,6 +701,64 @@ sys.stderr = StringIO()
                 {isSubmitting ? 'Mengirim...' : 'Ya, Kirim Sekarang'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUCCESS MODAL: Pekerjaan Berhasil Dikumpulkan */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 sm:p-7 shadow-2xl space-y-5 text-center animate-in fade-in zoom-in-95 duration-200">
+            
+            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/10">
+              <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="font-bold text-white text-lg">Pekerjaan Berhasil Dikumpulkan!</h3>
+              <p className="text-xs text-slate-300 leading-relaxed max-w-sm mx-auto">
+                Tugas praktik Anda untuk sesi <strong className="text-white">"{session.title}"</strong> telah tersimpan dan status guru telah diperbarui menjadi <span className="text-cyan-400 font-medium">Submitted</span>.
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 text-left text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Status Editor:</span>
+                <span className="font-medium text-amber-400 flex items-center gap-1">
+                  <Lock className="w-3 h-3" />
+                  <span>Terkunci (Read-Only)</span>
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Total Run:</span>
+                <span className="font-mono text-white">{submission?.run_count || 0}×</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">Waktu Pengumpulan:</span>
+                <span className="text-slate-200">
+                  {new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSuccessModal(false)}
+                className="w-full px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition cursor-pointer border border-slate-700"
+              >
+                Lihat Kode
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/student')}
+                className="w-full px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition cursor-pointer shadow-lg shadow-cyan-600/20 flex items-center justify-center gap-1.5"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Dashboard</span>
+              </button>
+            </div>
+
           </div>
         </div>
       )}
