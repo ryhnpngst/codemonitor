@@ -10,14 +10,14 @@ import {
   UserCheck, 
   ArrowLeft, 
   ArrowRight,
-  AlertCircle
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { UserRole } from '../types/auth';
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
-  const { signInAsDemo } = useAuth();
+  const { signUp } = useAuth();
 
   const [role, setRole] = useState<UserRole>('student');
   const [name, setName] = useState('');
@@ -25,62 +25,40 @@ export const RegisterPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successInfo, setSuccessInfo] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setSuccessInfo(null);
 
     if (!name.trim() || !email.trim() || !password) {
       setErrorMsg('Harap lengkapi semua data pendaftaran.');
       return;
     }
 
-    setIsLoading(true);
-
-    if (!isSupabaseConfigured) {
-      // Demo fallback registration
-      setTimeout(() => {
-        setIsLoading(false);
-        signInAsDemo(role);
-        navigate(role === 'teacher' ? '/teacher' : '/student', { replace: true });
-      }, 700);
+    if (password.length < 6) {
+      setErrorMsg('Kata sandi minimal harus terdiri dari 6 karakter.');
       return;
     }
 
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name,
-            role,
-          },
-        },
-      });
+    setIsLoading(true);
 
-      if (error) {
-        setErrorMsg(error.message);
-        setIsLoading(false);
-        return;
-      }
+    const result = await signUp(email.trim(), password, name.trim(), role);
+    setIsLoading(false);
 
-      if (data.user) {
-        // Upsert to profiles table as defined in PRD Section 22
-        await supabase.from('profiles').upsert({
-          id: data.user.id,
-          name,
-          email,
-          role,
-        });
+    if (!result.success) {
+      setErrorMsg(result.error || 'Pendaftaran gagal');
+      return;
+    }
 
-        alert('Pendaftaran berhasil! Anda akan dialihkan ke dashboard.');
-        navigate(role === 'teacher' ? '/teacher' : '/student', { replace: true });
-      }
-    } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Pendaftaran gagal');
-    } finally {
-      setIsLoading(false);
+    if (result.sessionExists) {
+      // User is immediately authenticated
+      const dest = role === 'teacher' ? '/teacher' : '/student';
+      navigate(dest, { replace: true });
+    } else {
+      // Email confirmation is required by Supabase project
+      setSuccessInfo('Pendaftaran berhasil! Tautan konfirmasi telah dikirim ke email Anda. Silakan verifikasi sebelum login (atau matikan Confirm Email di Supabase Dashboard untuk pengujian langsung).');
     }
   };
 
@@ -108,6 +86,13 @@ export const RegisterPage: React.FC = () => {
             <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {successInfo && (
+            <div className="mb-4 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="leading-relaxed">{successInfo}</div>
             </div>
           )}
 

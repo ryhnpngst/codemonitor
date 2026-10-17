@@ -9,6 +9,7 @@ interface AuthContextType {
   error: string | null;
   isSupabaseConfigured: boolean;
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string; role?: UserRole }>;
+  signUp: (email: string, password: string, name: string, role: UserRole) => Promise<{ success: boolean; error?: string; sessionExists: boolean; role?: UserRole }>;
   signInAsDemo: (role: UserRole) => void;
   signOut: () => Promise<void>;
   clearError: () => void;
@@ -171,6 +172,80 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const signUp = async (
+    email: string,
+    password: string,
+    name: string,
+    role: UserRole
+  ): Promise<{ success: boolean; error?: string; sessionExists: boolean; role?: UserRole }> => {
+    setIsLoading(true);
+    setError(null);
+
+    if (!isSupabaseConfigured) {
+      setIsLoading(false);
+      // Demo fallback
+      const demoUser: Profile = {
+        id: `demo-${role}-${Date.now()}`,
+        name,
+        email,
+        role,
+        created_at: new Date().toISOString(),
+      };
+      setProfile(demoUser);
+      setUser({ id: demoUser.id, email: demoUser.email });
+      localStorage.setItem('codemonitor_demo_user', JSON.stringify(demoUser));
+      return { success: true, sessionExists: true, role };
+    }
+
+    try {
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name,
+            role,
+          },
+        },
+      });
+
+      if (signUpError) {
+        setError(signUpError.message);
+        setIsLoading(false);
+        return { success: false, error: signUpError.message, sessionExists: false };
+      }
+
+      if (data.user) {
+        if (data.session) {
+          // Email confirmation is disabled, user is immediately logged in
+          const newProfile: Profile = {
+            id: data.user.id,
+            name,
+            email,
+            role,
+            created_at: new Date().toISOString(),
+          };
+          setUser({ id: data.user.id, email: data.user.email || email });
+          setProfile(newProfile);
+          setIsLoading(false);
+          return { success: true, sessionExists: true, role };
+        } else {
+          // Email confirmation is enabled, session is pending email verification
+          setIsLoading(false);
+          return { success: true, sessionExists: false, role };
+        }
+      }
+
+      setIsLoading(false);
+      return { success: false, error: 'Gagal membuat akun.', sessionExists: false };
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Terjadi kesalahan saat pendaftaran.';
+      setError(errMsg);
+      setIsLoading(false);
+      return { success: false, error: errMsg, sessionExists: false };
+    }
+  };
+
   const signInAsDemo = (role: UserRole) => {
     const demoProfile = DEMO_PROFILES[role];
     setProfile(demoProfile);
@@ -202,6 +277,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         error,
         isSupabaseConfigured,
         signIn,
+        signUp,
         signInAsDemo,
         signOut,
         clearError,
