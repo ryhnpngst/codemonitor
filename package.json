@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@supabase/server": "^1.9.2",
     "@supabase/supabase-js": "^2.49.1",
     "lucide-react": "^0.475.0",

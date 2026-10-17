@@ -5,6 +5,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { TeacherDashboardPage } from './pages/TeacherDashboardPage';
 import { StudentDashboardPage } from './pages/StudentDashboardPage';
+import { StudentPracticePage } from './pages/StudentPracticePage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 const RootRedirect: React.FC = () => {
@@ -40,6 +41,16 @@ export const App: React.FC = () => {
             element={
               <ProtectedRoute allowedRole="teacher">
                 <TeacherDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Protected Student Practice Workspace */}
+          <Route
+            path="/student/practice/:sessionId"
+            element={
+              <ProtectedRoute allowedRole="student">
+                <StudentPracticePage />
               </ProtectedRoute>
             }
           />
