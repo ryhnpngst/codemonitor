@@ -1,7 +1,24 @@
 <!doctype html>
-<html lang="id" class="h-full bg-slate-950 text-slate-100">
+<html lang="id" class="h-full">
   <head>
     <meta charset="UTF-8" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        const stored = localStorage.getItem("color-scheme") || localStorage.getItem("theme");
+        const resolved = stored || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+        document.querySelector('meta[name="color-scheme"]').content = stored || "light dark";
+        if (resolved === "light") {
+          document.documentElement.classList.add("light");
+          document.documentElement.classList.remove("dark");
+          document.documentElement.setAttribute("data-theme", "light");
+        } else {
+          document.documentElement.classList.add("dark");
+          document.documentElement.classList.remove("light");
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CodeMonitor — Platform Praktik & Monitoring Pemrograman Siswa</title>
@@ -14,4 +31,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { TeacherDashboardPage } from './pages/TeacherDashboardPage';
@@ -28,49 +29,51 @@ const RootRedirect: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* Public Routes */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
 
-          {/* Protected Teacher Routes */}
-          <Route
-            path="/teacher/*"
-            element={
-              <ProtectedRoute allowedRole="teacher">
-                <TeacherDashboardPage />
-              </ProtectedRoute>
-            }
-          />
+            {/* Protected Teacher Routes */}
+            <Route
+              path="/teacher/*"
+              element={
+                <ProtectedRoute allowedRole="teacher">
+                  <TeacherDashboardPage />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Protected Student Practice Workspace */}
-          <Route
-            path="/student/practice/:sessionId"
-            element={
-              <ProtectedRoute allowedRole="student">
-                <StudentPracticePage />
-              </ProtectedRoute>
-            }
-          />
+            {/* Protected Student Practice Workspace */}
+            <Route
+              path="/student/practice/:sessionId"
+              element={
+                <ProtectedRoute allowedRole="student">
+                  <StudentPracticePage />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Protected Student Routes */}
-          <Route
-            path="/student/*"
-            element={
-              <ProtectedRoute allowedRole="student">
-                <StudentDashboardPage />
-              </ProtectedRoute>
-            }
-          />
+            {/* Protected Student Routes */}
+            <Route
+              path="/student/*"
+              element={
+                <ProtectedRoute allowedRole="student">
+                  <StudentDashboardPage />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Root / Default Redirect */}
-          <Route path="/" element={<RootRedirect />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+            {/* Root / Default Redirect */}
+            <Route path="/" element={<RootRedirect />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeProvider>
   );
 };
 

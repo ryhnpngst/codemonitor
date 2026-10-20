@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { EnrolledClassModel, StudentSessionItem } from '../types/database.types';
 import { 
@@ -333,6 +334,7 @@ export const StudentDashboardPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4">
+            <ThemeToggle />
             <div className="text-right hidden sm:block">
               <div className="text-sm font-semibold text-slate-200">{profile?.name || 'Peserta Didik'}</div>
               <div className="text-xs text-slate-400">{profile?.email}</div>

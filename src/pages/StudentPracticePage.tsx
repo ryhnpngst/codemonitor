@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import type { PracticeSessionModel, SubmissionModel } from '../types/database.types';
 import { 
@@ -23,6 +25,7 @@ export const StudentPracticePage: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { theme } = useTheme();
 
   // State: Session & Submission
   const [session, setSession] = useState<PracticeSessionModel | null>(null);
@@ -484,6 +487,7 @@ sys.stderr = StringIO()
 
         {/* Right: Actions (Run, Copy, Submit) */}
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           {/* Copy Code */}
           <button
             onClick={handleCopyCode}
@@ -597,7 +601,7 @@ sys.stderr = StringIO()
               height="100%"
               language={isPython ? 'python' : 'cpp'}
               value={code}
-              theme="vs-dark"
+              theme={theme === 'light' ? 'vs' : 'vs-dark'}
               onChange={handleCodeChange}
               options={{
                 readOnly: isSubmitted,
