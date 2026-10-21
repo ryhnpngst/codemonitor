@@ -10,6 +10,7 @@ import type { PracticeSessionModel, SubmissionModel } from '../types/database.ty
 import { 
   ArrowLeft, 
   Play, 
+  Square,
   Check, 
   Copy, 
   Terminal, 
@@ -35,6 +36,9 @@ export const StudentPracticePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Computed: Is session closed by teacher
+  const isSessionClosed = session?.status === 'Closed';
+
   // State: Autosave status
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | 'idle'>('idle');
   const [lastSavedTime, setLastSavedTime] = useState<string>('');
@@ -46,6 +50,11 @@ export const StudentPracticePage: React.FC = () => {
   const [isPyodideLoading, setIsPyodideLoading] = useState<boolean>(false);
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const pyodideInstanceRef = useRef<any>(null);
+
+  // Stop Execution & Timeout refs (PRD F06 / F08)
+  const runTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const stopRequestedRef = useRef<boolean>(false);
+  const stopRejectRef = useRef<((reason: 'stop' | 'timeout') => void) | null>(null);
 
   // Terminal output
   const [terminalOutput, setTerminalOutput] = useState<{ text: string; type: 'stdout' | 'stderr' | 'system' }[]>([
@@ -161,9 +170,21 @@ export const StudentPracticePage: React.FC = () => {
     fetchSessionData();
   }, [fetchSessionData]);
 
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (runTimeoutRef.current) {
+        clearTimeout(runTimeoutRef.current);
+      }
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // 2. Autosave with Debounce (PRD F05)
   const performSave = useCallback(async (codeToSave: string, count: number) => {
-    if (!sessionId || !user || !isSupabaseConfigured || isSubmitted) return;
+    if (!sessionId || !user || !isSupabaseConfigured || isSubmitted || isSessionClosed) return;
 
     setSaveStatus('saving');
     try {
@@ -190,10 +211,10 @@ export const StudentPracticePage: React.FC = () => {
     } catch {
       setSaveStatus('error');
     }
-  }, [sessionId, user, isSubmitted]);
+  }, [sessionId, user, isSubmitted, isSessionClosed]);
 
   const handleCodeChange = (newCode?: string) => {
-    if (isSubmitted) return;
+    if (isSubmitted || isSessionClosed) return;
     const value = newCode || '';
     setCode(value);
     changeCountRef.current += 1;
@@ -208,6 +229,20 @@ export const StudentPracticePage: React.FC = () => {
       performSave(value, changeCountRef.current);
     }, 1500);
   };
+
+  // Stop Python execution (PRD F06 / F08)
+  const handleStopPython = useCallback((timedOut: boolean = false) => {
+    stopRequestedRef.current = true;
+    if (runTimeoutRef.current) {
+      clearTimeout(runTimeoutRef.current);
+      runTimeoutRef.current = null;
+    }
+    if (stopRejectRef.current) {
+      stopRejectRef.current(timedOut ? 'timeout' : 'stop');
+      stopRejectRef.current = null;
+    }
+    setIsRunning(false);
+  }, []);
 
   // 3. Load Pyodide WebAssembly for Python Runner (PRD F06)
   const initPyodide = useCallback(async () => {
@@ -260,11 +295,12 @@ export const StudentPracticePage: React.FC = () => {
     }
   }, [session, isPyodideReady, initPyodide]);
 
-  // 4. Run Python Code (PRD F06)
+  // 4. Run Python Code (PRD F06) with Stop Execution & 15s Safety Timeout
   const handleRunPython = async () => {
-    if (!isPyodideReady || isRunning) return;
+    if (!isPyodideReady || isRunning || isSubmitted || isSessionClosed) return;
 
     setIsRunning(true);
+    stopRequestedRef.current = false;
     if (window.innerWidth < 1024) {
       setMobileTab('terminal');
     }
@@ -278,6 +314,7 @@ export const StudentPracticePage: React.FC = () => {
     let capturedOutput = '';
     let isError = false;
     let errorMessage = '';
+    let stopReason: 'stop' | 'timeout' | null = null;
 
     try {
       const pyodide = pyodideInstanceRef.current;
@@ -290,25 +327,66 @@ sys.stdout = StringIO()
 sys.stderr = StringIO()
 `);
 
-      // Execute student code
-      await pyodide.runPythonAsync(code);
+      // Race between student execution, user clicking Stop, and 15s timeout
+      const executionPromise = pyodide.runPythonAsync(code);
+      const stopOrTimeoutPromise = new Promise<'stop' | 'timeout'>((resolve) => {
+        stopRejectRef.current = resolve;
+      });
 
-      // Extract stdout
-      const stdout = await pyodide.runPythonAsync('sys.stdout.getvalue()');
-      const stderr = await pyodide.runPythonAsync('sys.stderr.getvalue()');
+      // 15 seconds safety timeout
+      runTimeoutRef.current = setTimeout(() => {
+        if (stopRejectRef.current) {
+          stopRejectRef.current('timeout');
+        }
+      }, 15000);
 
-      if (stdout) {
-        capturedOutput += stdout;
-        setTerminalOutput(prev => [...prev, { text: stdout, type: 'stdout' }]);
+      const raceResult = await Promise.race([
+        executionPromise.then(() => ({ status: 'completed' as const })),
+        stopOrTimeoutPromise.then((reason) => ({ status: reason })),
+      ]);
+
+      if (runTimeoutRef.current) {
+        clearTimeout(runTimeoutRef.current);
+        runTimeoutRef.current = null;
       }
-      if (stderr) {
-        capturedOutput += stderr;
+      stopRejectRef.current = null;
+
+      // Extract stdout/stderr
+      try {
+        const stdout = await pyodide.runPythonAsync('sys.stdout.getvalue()');
+        const stderr = await pyodide.runPythonAsync('sys.stderr.getvalue()');
+
+        if (stdout) {
+          capturedOutput += stdout;
+          setTerminalOutput(prev => [...prev, { text: stdout, type: 'stdout' }]);
+        }
+        if (stderr) {
+          capturedOutput += stderr;
+          isError = true;
+          setTerminalOutput(prev => [...prev, { text: stderr, type: 'stderr' }]);
+        }
+      } catch {
+        // Fallback if pyodide io state was interrupted
+      }
+
+      if (raceResult.status === 'stop') {
+        stopReason = 'stop';
         isError = true;
-        setTerminalOutput(prev => [...prev, { text: stderr, type: 'stderr' }]);
-      }
-
-      if (!stdout && !stderr) {
-        setTerminalOutput(prev => [...prev, { text: '(Program selesai tanpa output teks)', type: 'system' }]);
+        setTerminalOutput(prev => [
+          ...prev,
+          { text: '⏹ [STOP] Eksekusi program dihentikan oleh pengguna.', type: 'stderr' }
+        ]);
+      } else if (raceResult.status === 'timeout') {
+        stopReason = 'timeout';
+        isError = true;
+        setTerminalOutput(prev => [
+          ...prev,
+          { text: '⏱ [TIMEOUT] Batas waktu eksekusi (15 detik) tercapai. Program dihentikan otomatis.', type: 'stderr' }
+        ]);
+      } else {
+        if (!capturedOutput && !isError) {
+          setTerminalOutput(prev => [...prev, { text: '(Program selesai tanpa output teks)', type: 'system' }]);
+        }
       }
     } catch (err: unknown) {
       isError = true;
@@ -318,16 +396,40 @@ sys.stderr = StringIO()
         { text: errorMessage, type: 'stderr' }
       ]);
     } finally {
+      if (runTimeoutRef.current) {
+        clearTimeout(runTimeoutRef.current);
+        runTimeoutRef.current = null;
+      }
+      stopRejectRef.current = null;
       const duration = ((performance.now() - runStartTime) / 1000).toFixed(2);
       setIsRunning(false);
+
+      const summaryLabel = stopReason === 'stop'
+        ? 'Dihentikan (Stopped)'
+        : stopReason === 'timeout'
+        ? 'Waktu Habis (Timeout)'
+        : isError
+        ? 'Terjadi Error'
+        : 'Success';
 
       setTerminalOutput(prev => [
         ...prev,
         { 
-          text: `[Selesai dalam ${duration} detik — ${isError ? 'Terjadi Error' : 'Success'}]`, 
+          text: `[Selesai dalam ${duration} detik — ${summaryLabel}]`, 
           type: isError ? 'stderr' : 'system' 
         }
       ]);
+
+      // Reset sys.stdout / sys.stderr back to defaults
+      try {
+        pyodideInstanceRef.current?.runPython?.(`
+import sys
+sys.stdout = sys.__stdout__
+sys.stderr = sys.__stderr__
+`);
+      } catch {
+        // ignore
+      }
 
       // Update Activity Tracking in Database (PRD F08)
       if (sessionId && user && isSupabaseConfigured) {
@@ -474,7 +576,12 @@ sys.stderr = StringIO()
 
         {/* Center: Autosave Status Indicator (PRD F05) */}
         <div className="hidden md:flex items-center gap-2 text-xs">
-          {isSubmitted ? (
+          {isSessionClosed ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium">
+              <Lock className="w-3 h-3" />
+              <span>Sesi Ditutup (Read-Only)</span>
+            </span>
+          ) : isSubmitted ? (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-medium">
               <Lock className="w-3 h-3" />
               <span>Terkunci (Submitted)</span>
@@ -512,30 +619,39 @@ sys.stderr = StringIO()
             <span className="hidden sm:inline">{copiedCode ? 'Disalin' : 'Salin'}</span>
           </button>
 
-          {/* Run Button (for Python) */}
+          {/* Run / Stop Button (for Python - PRD F06 & Stop Execution) */}
           {isPython && (
-            <button
-              onClick={handleRunPython}
-              disabled={isRunning || !isPyodideReady || isSubmitted}
-              className="px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white text-xs font-semibold flex items-center gap-1 sm:gap-1.5 transition shadow-sm shadow-emerald-600/30 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            >
-              {isRunning ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  <span className="hidden sm:inline">Running...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span className="hidden sm:inline">Jalankan (Run)</span>
-                  <span className="sm:hidden text-[11px]">Run</span>
-                </>
-              )}
-            </button>
+            isRunning ? (
+              <button
+                onClick={() => handleStopPython(false)}
+                title="Hentikan eksekusi kode sekarang"
+                className="px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 active:scale-[0.99] text-white text-xs font-semibold flex items-center gap-1 sm:gap-1.5 transition shadow-sm shadow-rose-600/30 cursor-pointer animate-pulse"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                <span className="hidden sm:inline">Hentikan (Stop)</span>
+                <span className="sm:hidden text-[11px]">Stop</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleRunPython}
+                disabled={!isPyodideReady || isSubmitted || isSessionClosed}
+                className="px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white text-xs font-semibold flex items-center gap-1 sm:gap-1.5 transition shadow-sm shadow-emerald-600/30 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span className="hidden sm:inline">Jalankan (Run)</span>
+                <span className="sm:hidden text-[11px]">Run</span>
+              </button>
+            )
           )}
 
           {/* Submit Work Button (PRD F11) */}
-          {!isSubmitted ? (
+          {isSessionClosed ? (
+            <span className="text-[11px] sm:text-xs px-2 sm:px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium flex items-center gap-1">
+              <Lock className="w-3 h-3" />
+              <span className="hidden sm:inline">Sesi Ditutup</span>
+              <span className="sm:hidden">Ditutup</span>
+            </span>
+          ) : !isSubmitted ? (
             <button
               onClick={() => setShowSubmitModal(true)}
               className="px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 active:scale-[0.99] text-white text-xs font-semibold flex items-center gap-1 sm:gap-1.5 transition shadow-sm shadow-cyan-600/30 cursor-pointer"
@@ -648,13 +764,28 @@ sys.stderr = StringIO()
                 {isPython ? 'main.py' : 'sketch.ino'}
               </span>
             </div>
-            {isSubmitted && (
+            {isSessionClosed ? (
+              <span className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
+                <Lock className="w-3 h-3" />
+                <span>Mode Baca (Sesi Ditutup oleh Guru)</span>
+              </span>
+            ) : isSubmitted ? (
               <span className="text-[11px] text-amber-400 font-medium flex items-center gap-1">
                 <Lock className="w-3 h-3" />
                 <span>Mode Baca (Telah Dikumpulkan)</span>
               </span>
-            )}
+            ) : null}
           </div>
+
+          {/* Sesi Ditutup Banner */}
+          {isSessionClosed && (
+            <div className="bg-rose-950/40 border-b border-rose-500/30 px-4 py-2 flex items-center gap-2 text-rose-300 text-xs shrink-0">
+              <Lock className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>
+                <strong>Sesi Ditutup:</strong> Guru pengampu telah menutup sesi praktik ini. Anda dapat melihat kode dalam mode baca saja (read-only).
+              </span>
+            </div>
+          )}
 
           {/* Monaco Editor Container */}
           <div className={`relative ${
@@ -667,7 +798,7 @@ sys.stderr = StringIO()
               theme={theme === 'light' ? 'vs' : 'vs-dark'}
               onChange={handleCodeChange}
               options={{
-                readOnly: isSubmitted,
+                readOnly: isSubmitted || isSessionClosed,
                 fontSize: 13,
                 fontFamily: "'Fira Code', monospace",
                 minimap: { enabled: false },
@@ -702,10 +833,20 @@ sys.stderr = StringIO()
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {isRunning && (
+                    <button
+                      onClick={() => handleStopPython(false)}
+                      title="Hentikan eksekusi kode sekarang (Stop)"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-semibold transition cursor-pointer shadow-sm animate-pulse"
+                    >
+                      <Square className="w-3 h-3 fill-current" />
+                      <span>Stop</span>
+                    </button>
+                  )}
                   <button
                     onClick={handleClearTerminal}
                     title="Bersihkan terminal"
-                    className="p-1 text-slate-400 hover:text-white transition"
+                    className="p-1 text-slate-400 hover:text-white transition cursor-pointer"
                   >
                     <RotateCcw className="w-3 h-3" />
                   </button>

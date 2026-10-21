@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { formatRelativeTime, generateClassCode, calculateClassroomMetrics, filterStudents } from '../utils/classroom';
+import { formatRelativeTime, generateClassCode, calculateClassroomMetrics, filterStudents, toggleSessionStatus } from '../utils/classroom';
 import type { ClassModel, PracticeSessionModel, StudentMonitorItem } from '../types/database.types';
 import { 
   Code2, 
@@ -20,7 +20,9 @@ import {
   X,
   AlertTriangle,
   Eye,
-  ChevronDown
+  ChevronDown,
+  Lock,
+  Unlock
 } from 'lucide-react';
 
 export const TeacherDashboardPage: React.FC = () => {
@@ -52,6 +54,7 @@ export const TeacherDashboardPage: React.FC = () => {
   const [newSessionInstructions, setNewSessionInstructions] = useState<string>('');
   const [newSessionLang, setNewSessionLang] = useState<'Python' | 'Arduino/C++'>('Python');
   const [isCreatingSession, setIsCreatingSession] = useState<boolean>(false);
+  const [isUpdatingSessionStatus, setIsUpdatingSessionStatus] = useState<boolean>(false);
 
   // Live Code Viewer Modal
   const [viewingStudent, setViewingStudent] = useState<StudentMonitorItem | null>(null);
@@ -394,6 +397,38 @@ export const TeacherDashboardPage: React.FC = () => {
     }
   };
 
+  // Handler: Toggle Practice Session Status (Active <-> Closed) (PRD Ubah Status Sesi)
+  const handleToggleSessionStatus = async (session: PracticeSessionModel) => {
+    if (!session || !isSupabaseConfigured) return;
+    
+    const nextStatus = toggleSessionStatus(session.status);
+    const confirmMessage = nextStatus === 'Closed'
+      ? `Tutup sesi "${session.title}"?\n\nSiswa tidak akan dapat mengedit kode atau mengumpulkan tugas baru lagi untuk sesi ini.`
+      : `Buka kembali sesi "${session.title}"?\n\nSiswa akan dapat melanjutkan pengerjaan dan mengirim tugas.`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    setIsUpdatingSessionStatus(true);
+    try {
+      const { error } = await supabase
+        .from('practice_sessions')
+        .update({ status: nextStatus })
+        .eq('id', session.id);
+
+      if (error) {
+        alert('Gagal mengubah status sesi: ' + error.message);
+        return;
+      }
+
+      setSessions(prev => prev.map(s => s.id === session.id ? { ...s, status: nextStatus } : s));
+    } catch (err: unknown) {
+      console.error('Error toggling session status:', err);
+      alert('Terjadi kesalahan saat memperbarui status sesi.');
+    } finally {
+      setIsUpdatingSessionStatus(false);
+    }
+  };
+
   // Handler: Copy Class Code
   const handleCopyClassCode = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -596,7 +631,7 @@ export const TeacherDashboardPage: React.FC = () => {
                   Sesi Praktik Aktif
                 </div>
                 {sessions.length > 0 ? (
-                  <div className="flex items-center gap-2 mt-0.5">
+                  <div className="flex flex-wrap items-center gap-2 mt-0.5">
                     <div className="relative inline-block">
                       <select
                         value={selectedSessionId}
@@ -611,6 +646,53 @@ export const TeacherDashboardPage: React.FC = () => {
                       </select>
                       <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-2 pointer-events-none" />
                     </div>
+
+                    {/* Session Status Badge & Active/Closed Toggle Button (PRD Ubah Status Sesi) */}
+                    {activeSession && (
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border ${
+                          activeSession.status === 'Closed'
+                            ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        }`}>
+                          {activeSession.status === 'Closed' ? (
+                            <>
+                              <Lock className="w-3 h-3" />
+                              <span>Ditutup</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                              <span>Aktif</span>
+                            </>
+                          )}
+                        </span>
+
+                        <button
+                          onClick={() => handleToggleSessionStatus(activeSession)}
+                          disabled={isUpdatingSessionStatus}
+                          title={activeSession.status === 'Closed' ? 'Buka kembali sesi ini agar siswa dapat mengedit dan mengumpulkan tugas' : 'Tutup sesi ini agar siswa tidak dapat mengedit lagi (read-only)'}
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-semibold border transition cursor-pointer disabled:opacity-50 ${
+                            activeSession.status === 'Closed'
+                              ? 'bg-emerald-950/70 hover:bg-emerald-900/90 text-emerald-300 border-emerald-600/40'
+                              : 'bg-rose-950/70 hover:bg-rose-900/90 text-rose-300 border-rose-600/40'
+                          }`}
+                        >
+                          {activeSession.status === 'Closed' ? (
+                            <>
+                              <Unlock className="w-3 h-3 text-emerald-400" />
+                              <span>Buka Sesi</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="w-3 h-3 text-rose-400" />
+                              <span>Tutup Sesi</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+
                     {activeSession?.instructions && (
                       <span className="text-[11px] text-slate-400 hidden xl:inline max-w-xs truncate" title={activeSession.instructions}>
                         • {activeSession.instructions}
@@ -674,6 +756,25 @@ export const TeacherDashboardPage: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {/* Closed Session Warning Banner (PRD Ubah Status Sesi) */}
+          {activeSession?.status === 'Closed' && (
+            <div className="px-4 py-2.5 bg-rose-950/20 border-b border-rose-500/20 flex flex-wrap items-center justify-between gap-2 text-xs text-rose-300">
+              <div className="flex items-center gap-2">
+                <Lock className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>
+                  Sesi praktik ini berstatus <strong>Ditutup (Closed)</strong>. Siswa tidak dapat mengedit kode atau mengirimkan pekerjaan baru.
+                </span>
+              </div>
+              <button
+                onClick={() => handleToggleSessionStatus(activeSession)}
+                disabled={isUpdatingSessionStatus}
+                className="text-[11px] font-semibold text-rose-300 hover:text-white underline cursor-pointer"
+              >
+                Buka Kembali Sesi
+              </button>
+            </div>
+          )}
 
           {/* Table Column Headers */}
           <div className="hidden sm:grid grid-cols-12 px-6 py-2.5 bg-slate-950/60 border-b border-slate-800/80 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">

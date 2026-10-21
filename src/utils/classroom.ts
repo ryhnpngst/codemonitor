@@ -98,3 +98,21 @@ export const filterStudents = (
   });
 };
 
+/**
+ * Toggle practice session status between Active and Closed.
+ */
+export const toggleSessionStatus = (current: 'Draft' | 'Active' | 'Closed'): 'Active' | 'Closed' => {
+  return current === 'Closed' ? 'Active' : 'Closed';
+};
+
+/**
+ * Check if a practice session is editable by student.
+ * Returns false if student already submitted or if session is closed by teacher.
+ */
+export const isSessionEditable = (sessionStatus?: string, submissionStatus?: string): boolean => {
+  if (submissionStatus === 'submitted') return false;
+  if (sessionStatus === 'Closed') return false;
+  return true;
+};
+
+

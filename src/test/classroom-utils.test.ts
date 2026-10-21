@@ -6,6 +6,8 @@ import {
   sortStudentsByPriority,
   calculateClassroomMetrics,
   filterStudents,
+  toggleSessionStatus,
+  isSessionEditable,
 } from '../utils/classroom';
 import type { StudentMonitorItem } from '../types/database.types';
 
@@ -163,5 +165,40 @@ describe('Classroom Utilities', () => {
       expect(result).toHaveLength(0);
     });
   });
+
+  describe('toggleSessionStatus()', () => {
+    it('harus mengubah status Active menjadi Closed', () => {
+      expect(toggleSessionStatus('Active')).toBe('Closed');
+    });
+
+    it('harus mengubah status Closed menjadi Active', () => {
+      expect(toggleSessionStatus('Closed')).toBe('Active');
+    });
+
+    it('harus mengubah status Draft menjadi Closed jika ditutup', () => {
+      expect(toggleSessionStatus('Draft')).toBe('Closed');
+    });
+  });
+
+  describe('isSessionEditable()', () => {
+    it('harus mengizinkan pengeditan jika sesi Active dan belum dikumpulkan', () => {
+      expect(isSessionEditable('Active', 'in_progress')).toBe(true);
+      expect(isSessionEditable('Active', undefined)).toBe(true);
+    });
+
+    it('harus menolak pengeditan jika submission sudah submitted', () => {
+      expect(isSessionEditable('Active', 'submitted')).toBe(false);
+    });
+
+    it('harus menolak pengeditan jika sesi berstatus Closed', () => {
+      expect(isSessionEditable('Closed', 'in_progress')).toBe(false);
+      expect(isSessionEditable('Closed', undefined)).toBe(false);
+    });
+
+    it('harus menolak pengeditan jika sesi Closed dan submission submitted', () => {
+      expect(isSessionEditable('Closed', 'submitted')).toBe(false);
+    });
+  });
 });
+
 
