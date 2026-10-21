@@ -81,14 +81,14 @@ export const LoginPage: React.FC = () => {
       <div className="absolute top-1/2 right-10 w-64 h-64 bg-cyan-600/10 rounded-full blur-3xl pointer-events-none -z-10"></div>
 
       {/* Top Header / Brand */}
-      <header className="w-full max-w-7xl mx-auto px-6 py-6 flex items-center justify-between z-10">
+      <header className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 ring-1 ring-white/10">
+          <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 ring-1 ring-white/10 shrink-0">
             <Code2 className="w-5 h-5 text-white" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-xl tracking-tight text-white font-mono">
+              <span className="font-extrabold text-lg sm:text-xl tracking-tight text-white font-mono">
                 Code<span className="text-indigo-400">Monitor</span>
               </span>
             </div>
@@ -104,8 +104,8 @@ export const LoginPage: React.FC = () => {
       <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 flex-1 flex items-center justify-center z-10">
         <div className="w-full grid lg:grid-cols-12 gap-8 lg:gap-12 items-center">
           {/* Left Column: Product Information & Value Proposition */}
-          <div className="lg:col-span-6 space-y-6 text-center lg:text-left">
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white leading-tight">
+          <div className="lg:col-span-6 space-y-5 sm:space-y-6 text-center lg:text-left">
+            <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white leading-tight">
               Pantau Aktivitas Coding Siswa secara{" "}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-cyan-400 to-emerald-400">
                 Real-Time
@@ -177,8 +177,8 @@ export const LoginPage: React.FC = () => {
           </div>
 
           {/* Right Column: Sign-In Card */}
-          <div className="lg:col-span-6 flex justify-center">
-            <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl relative">
+          <div className="lg:col-span-6 flex justify-center w-full">
+            <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-8 shadow-2xl backdrop-blur-xl relative">
               <div className="mb-6">
                 <h2 className="text-2xl font-bold text-white tracking-tight">
                   Masuk ke Akun

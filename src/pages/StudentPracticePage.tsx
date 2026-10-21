@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { getDefaultStarterCode } from '../utils/editor';
 import type { PracticeSessionModel, SubmissionModel } from '../types/database.types';
 import { 
   ArrowLeft, 
@@ -58,6 +59,7 @@ export const StudentPracticePage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [mobileTab, setMobileTab] = useState<'editor' | 'terminal' | 'instructions'>('editor');
 
   // Scroll terminal to bottom
   useEffect(() => {
@@ -158,15 +160,6 @@ export const StudentPracticePage: React.FC = () => {
   useEffect(() => {
     fetchSessionData();
   }, [fetchSessionData]);
-
-  // Default starter code helper
-  const getDefaultStarterCode = (language: string): string => {
-    if (language === 'Python') {
-      return `# Tulis program Python Anda di sini\n# Contoh:\nsuhu = float(input("Masukkan suhu tubuh (derajat C): "))\n\nif suhu > 35:\n    print("Kondisi: Suhu Tinggi / Bahaya")\nelse:\n    print("Kondisi: Suhu Normal")\n`;
-    } else {
-      return `// Sesi Praktik Arduino / C++\nvoid setup() {\n  pinMode(13, OUTPUT);\n}\n\nvoid loop() {\n  digitalWrite(13, HIGH);\n  delay(1000);\n  digitalWrite(13, LOW);\n  delay(1000);\n}\n`;
-    }
-  };
 
   // 2. Autosave with Debounce (PRD F05)
   const performSave = useCallback(async (codeToSave: string, count: number) => {
@@ -272,6 +265,9 @@ export const StudentPracticePage: React.FC = () => {
     if (!isPyodideReady || isRunning) return;
 
     setIsRunning(true);
+    if (window.innerWidth < 1024) {
+      setMobileTab('terminal');
+    }
     const runStartTime = performance.now();
 
     setTerminalOutput(prev => [
@@ -447,13 +443,13 @@ sys.stderr = StringIO()
   const isPython = session.language === 'Python';
 
   return (
-    <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden selection:bg-cyan-500 selection:text-white">
+    <div className="h-[100dvh] bg-slate-950 text-slate-100 flex flex-col overflow-hidden selection:bg-cyan-500 selection:text-white">
       
       {/* Top Header Bar */}
-      <header className="h-14 border-b border-slate-800 bg-slate-900/90 px-4 sm:px-6 flex items-center justify-between z-20 shrink-0">
+      <header className="h-14 border-b border-slate-800 bg-slate-900/90 px-3 sm:px-6 flex items-center justify-between z-20 shrink-0">
         
         {/* Left: Back & Session Title */}
-        <div className="flex items-center gap-3 overflow-hidden">
+        <div className="flex items-center gap-2 sm:gap-3 overflow-hidden min-w-0">
           <button
             onClick={() => navigate('/student')}
             title="Kembali ke Dashboard Siswa"
@@ -462,11 +458,11 @@ sys.stderr = StringIO()
             <ArrowLeft className="w-4 h-4" />
           </button>
 
-          <div className="flex items-center gap-2.5 truncate">
-            <span className="font-bold text-sm text-white truncate">
+          <div className="flex items-center gap-2 truncate">
+            <span className="font-bold text-xs sm:text-sm text-white truncate max-w-[100px] xs:max-w-[140px] sm:max-w-xs md:max-w-md">
               {session.title}
             </span>
-            <span className={`text-[11px] font-mono px-2 py-0.5 rounded border shrink-0 ${
+            <span className={`text-[10px] sm:text-[11px] font-mono px-1.5 sm:px-2 py-0.5 rounded border shrink-0 ${
               isPython 
                 ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' 
                 : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
@@ -504,13 +500,13 @@ sys.stderr = StringIO()
         </div>
 
         {/* Right: Actions (Run, Copy, Submit) */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <ThemeToggle />
           {/* Copy Code */}
           <button
             onClick={handleCopyCode}
             title="Salin kode ke clipboard"
-            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+            className="px-2 sm:px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
           >
             {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
             <span className="hidden sm:inline">{copiedCode ? 'Disalin' : 'Salin'}</span>
@@ -521,17 +517,18 @@ sys.stderr = StringIO()
             <button
               onClick={handleRunPython}
               disabled={isRunning || !isPyodideReady || isSubmitted}
-              className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm shadow-emerald-600/30 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white text-xs font-semibold flex items-center gap-1 sm:gap-1.5 transition shadow-sm shadow-emerald-600/30 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               {isRunning ? (
                 <>
                   <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  <span>Running...</span>
+                  <span className="hidden sm:inline">Running...</span>
                 </>
               ) : (
                 <>
                   <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Jalankan (Run)</span>
+                  <span className="hidden sm:inline">Jalankan (Run)</span>
+                  <span className="sm:hidden text-[11px]">Run</span>
                 </>
               )}
             </button>
@@ -541,24 +538,68 @@ sys.stderr = StringIO()
           {!isSubmitted ? (
             <button
               onClick={() => setShowSubmitModal(true)}
-              className="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 active:scale-[0.99] text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm shadow-cyan-600/30 cursor-pointer"
+              className="px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 active:scale-[0.99] text-white text-xs font-semibold flex items-center gap-1 sm:gap-1.5 transition shadow-sm shadow-cyan-600/30 cursor-pointer"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>Kirim Pekerjaan</span>
+              <span className="hidden sm:inline">Kirim Pekerjaan</span>
+              <span className="sm:hidden text-[11px]">Kirim</span>
             </button>
           ) : (
-            <span className="text-xs px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-medium">
-              ✅ Sudah Dikirim
+            <span className="text-[11px] sm:text-xs px-2 sm:px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-medium">
+              ✅ <span className="hidden sm:inline">Sudah Dikirim</span>
             </span>
           )}
         </div>
       </header>
 
+      {/* Mobile Tab Switcher (Visible on < lg screens) */}
+      <div className="lg:hidden flex items-center border-b border-slate-800 bg-slate-900/95 px-2 py-1.5 gap-1 shrink-0 text-xs">
+        <button
+          onClick={() => setMobileTab('editor')}
+          className={`flex-1 py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition cursor-pointer ${
+            mobileTab === 'editor'
+              ? 'bg-cyan-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+          }`}
+        >
+          <FileCode className="w-3.5 h-3.5" />
+          <span>Editor</span>
+        </button>
+
+        {isPython && (
+          <button
+            onClick={() => setMobileTab('terminal')}
+            className={`flex-1 py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition cursor-pointer ${
+              mobileTab === 'terminal'
+                ? 'bg-cyan-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            <span>Terminal</span>
+          </button>
+        )}
+
+        <button
+          onClick={() => setMobileTab('instructions')}
+          className={`flex-1 py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition cursor-pointer ${
+            mobileTab === 'instructions'
+              ? 'bg-cyan-600 text-white shadow-sm'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+          }`}
+        >
+          <Info className="w-3.5 h-3.5" />
+          <span>Instruksi</span>
+        </button>
+      </div>
+
       {/* Main Workspace Body */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
         
-        {/* Left Side: Task Instructions & Details (3 Cols on Desktop) */}
-        <div className="lg:col-span-3 border-r border-slate-800 bg-slate-900/40 p-5 overflow-y-auto space-y-5 hidden md:block">
+        {/* Left Side: Task Instructions & Details (3 Cols on Desktop, Full screen on Mobile Instructions Tab) */}
+        <div className={`lg:col-span-3 border-r border-slate-800 bg-slate-900/40 p-4 sm:p-5 overflow-y-auto space-y-5 ${
+          mobileTab === 'instructions' ? 'block flex-1' : 'hidden lg:block'
+        }`}>
           <div>
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
               <Info className="w-4 h-4 text-cyan-400" />
@@ -595,7 +636,9 @@ sys.stderr = StringIO()
         </div>
 
         {/* Right Side: Monaco Editor + Terminal Output (9 Cols on Desktop) */}
-        <div className="lg:col-span-9 flex flex-col overflow-hidden bg-slate-950">
+        <div className={`lg:col-span-9 flex flex-col overflow-hidden bg-slate-950 ${
+          mobileTab !== 'instructions' ? 'flex flex-1' : 'hidden lg:flex'
+        }`}>
           
           {/* Top of Editor: Tab Indicator */}
           <div className="h-9 bg-slate-900/60 border-b border-slate-800 px-4 flex items-center justify-between text-xs text-slate-400 shrink-0">
@@ -614,7 +657,9 @@ sys.stderr = StringIO()
           </div>
 
           {/* Monaco Editor Container */}
-          <div className="flex-1 min-h-[300px] relative">
+          <div className={`relative ${
+            mobileTab === 'terminal' ? 'hidden lg:flex flex-1 min-h-[200px]' : 'flex-1 flex flex-col min-h-[180px]'
+          }`}>
             <Editor
               height="100%"
               language={isPython ? 'python' : 'cpp'}
@@ -623,11 +668,12 @@ sys.stderr = StringIO()
               onChange={handleCodeChange}
               options={{
                 readOnly: isSubmitted,
-                fontSize: 14,
+                fontSize: 13,
                 fontFamily: "'Fira Code', monospace",
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
                 lineNumbers: 'on',
+                lineNumbersMinChars: 3,
                 automaticLayout: true,
                 tabSize: 4,
                 wordWrap: 'on',
@@ -637,7 +683,9 @@ sys.stderr = StringIO()
 
           {/* Bottom Panel: Terminal / Output for Python */}
           {isPython && (
-            <div className="h-52 border-t border-slate-800 bg-slate-900/90 flex flex-col shrink-0">
+            <div className={`border-t border-slate-800 bg-slate-900/90 flex flex-col shrink-0 ${
+              mobileTab === 'editor' ? 'hidden lg:flex h-52' : 'flex-1 lg:h-52'
+            }`}>
               
               {/* Terminal Title Bar */}
               <div className="h-8 border-b border-slate-800 px-4 flex items-center justify-between text-xs bg-slate-900 shrink-0">

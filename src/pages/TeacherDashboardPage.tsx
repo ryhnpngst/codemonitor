@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { formatRelativeTime, generateClassCode, calculateClassroomMetrics, filterStudents } from '../utils/classroom';
 import type { ClassModel, PracticeSessionModel, StudentMonitorItem } from '../types/database.types';
 import { 
   Code2, 
@@ -56,29 +57,6 @@ export const TeacherDashboardPage: React.FC = () => {
   const [viewingStudent, setViewingStudent] = useState<StudentMonitorItem | null>(null);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [copiedClassCode, setCopiedClassCode] = useState<boolean>(false);
-
-  // Helper: Format relative time
-  const formatRelativeTime = (timestamp?: string): string => {
-    if (!timestamp) return 'Belum ada aktivitas';
-    const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
-    if (seconds < 10) return 'Baru saja';
-    if (seconds < 60) return `${seconds} detik lalu`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes} menit lalu`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} jam lalu`;
-    return new Date(timestamp).toLocaleDateString('id-ID', { hour: '2-digit', minute: '2-digit' });
-  };
-
-  // Helper: Random 6-char Class Code
-  const generateClassCode = (): string => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return code;
-  };
 
   // Selected Class & Session objects
   const activeClass = useMemo(() => {
@@ -431,40 +409,22 @@ export const TeacherDashboardPage: React.FC = () => {
   };
 
   // Metrics (PRD Section 21)
-  const metrics = useMemo(() => {
-    const total = students.length;
-    const active = students.filter(s => s.status === 'active').length;
-    const inactive = students.filter(s => s.status === 'inactive').length;
-    const notStarted = students.filter(s => s.status === 'not_started').length;
-    const submitted = students.filter(s => s.status === 'submitted').length;
-    const errorCount = students.filter(s => s.last_run_status === 'error').length;
-    return { total, active, inactive, notStarted, submitted, errorCount };
-  }, [students]);
+  const metrics = useMemo(() => calculateClassroomMetrics(students), [students]);
 
   // Filtered Students List
-  const filteredStudents = useMemo(() => {
-    return students.filter(student => {
-      const matchesSearch = student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            student.email.toLowerCase().includes(searchQuery.toLowerCase());
-      if (!matchesSearch) return false;
-
-      if (statusFilter === 'all') return true;
-      if (statusFilter === 'error') return student.last_run_status === 'error';
-      return student.status === statusFilter;
-    });
-  }, [students, searchQuery, statusFilter]);
+  const filteredStudents = useMemo(() => filterStudents(students, searchQuery, statusFilter), [students, searchQuery, statusFilter]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-indigo-500 selection:text-white">
       {/* Top Navigation */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md px-6 py-3.5 sticky top-0 z-20">
+      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md px-4 sm:px-6 py-3.5 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-600/30">
+            <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-600/30 shrink-0">
               <Code2 className="w-5 h-5" />
             </div>
             <div>
-              <span className="font-extrabold text-lg font-mono tracking-tight text-white">
+              <span className="font-extrabold text-base sm:text-lg font-mono tracking-tight text-white">
                 Code<span className="text-indigo-400">Monitor</span>
               </span>
               <span className="ml-2 text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono">
@@ -473,7 +433,7 @@ export const TeacherDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <ThemeToggle />
             <div className="text-right hidden sm:block">
               <div className="text-sm font-semibold text-slate-200">{profile?.name || 'Bapak/Ibu Guru'}</div>
@@ -481,10 +441,10 @@ export const TeacherDashboardPage: React.FC = () => {
             </div>
             <button
               onClick={() => signOut()}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium border border-slate-700 transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium border border-slate-700 transition cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>Keluar</span>
+              <span className="hidden sm:inline">Keluar</span>
             </button>
           </div>
         </div>
@@ -508,16 +468,16 @@ export const TeacherDashboardPage: React.FC = () => {
         )}
 
         {/* Header Controls: Class Selector & Session Management */}
-        <div className="p-6 rounded-2xl bg-gradient-to-r from-indigo-950/50 via-slate-900/80 to-slate-900/50 border border-indigo-500/20 flex flex-col md:flex-row md:items-center justify-between gap-5">
+        <div className="p-4 sm:p-6 rounded-2xl bg-gradient-to-r from-indigo-950/50 via-slate-900/80 to-slate-900/50 border border-indigo-500/20 flex flex-col md:flex-row md:items-center justify-between gap-4 sm:gap-5">
           <div className="space-y-1.5">
-            <h1 className="text-2xl font-bold text-white">
+            <h1 className="text-xl sm:text-2xl font-bold text-white">
               {profile?.name ? `Selamat datang, ${profile.name}!` : 'Classroom Dashboard'}
             </h1>
             
             {/* Active Class Info & Selector */}
-            <div className="flex flex-wrap items-center gap-3 pt-1 text-sm text-slate-300">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 pt-1 text-xs sm:text-sm text-slate-300">
               {classes.length > 0 ? (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span>Kelas Aktif:</span>
                   <div className="relative inline-block">
                     <select
@@ -555,7 +515,7 @@ export const TeacherDashboardPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               onClick={() => setShowCreateClassModal(true)}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-2 border border-slate-700 transition cursor-pointer"
+              className="flex-1 sm:flex-initial justify-center px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-2 border border-slate-700 transition cursor-pointer"
             >
               <Plus className="w-4 h-4 text-slate-400" />
               <span>Tambah Kelas</span>
@@ -564,7 +524,7 @@ export const TeacherDashboardPage: React.FC = () => {
             <button
               onClick={() => setShowCreateSessionModal(true)}
               disabled={!selectedClassId}
-              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-2 transition shadow-lg shadow-indigo-600/30 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="flex-1 sm:flex-initial justify-center px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-2 transition shadow-lg shadow-indigo-600/30 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Buat Sesi Praktik</span>
@@ -573,50 +533,50 @@ export const TeacherDashboardPage: React.FC = () => {
         </div>
 
         {/* PRD Section 21: Classroom Dashboard Metrics */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
-          <div className="p-4 rounded-xl bg-slate-900/70 border border-slate-800">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3.5">
+          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-900/70 border border-slate-800">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400 font-medium">Total Siswa</span>
               <Users className="w-4 h-4 text-slate-400" />
             </div>
-            <div className="text-2xl font-bold text-white mt-2">{metrics.total}</div>
-            <div className="text-[11px] text-slate-500 mt-1">Terdaftar di kelas ini</div>
+            <div className="text-xl sm:text-2xl font-bold text-white mt-1.5">{metrics.total}</div>
+            <div className="text-[10px] sm:text-[11px] text-slate-500 mt-1">Terdaftar di kelas ini</div>
           </div>
 
-          <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/20">
+          <div className="p-3.5 sm:p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/20">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-emerald-300 font-medium">🟢 Aktif / Coding</span>
+              <span className="text-xs text-emerald-300 font-medium">🟢 Aktif</span>
               <Activity className="w-4 h-4 text-emerald-400" />
             </div>
-            <div className="text-2xl font-bold text-emerald-400 mt-2">{metrics.active}</div>
-            <div className="text-[11px] text-emerald-300/70 mt-1">&le; 2 menit aktif</div>
+            <div className="text-xl sm:text-2xl font-bold text-emerald-400 mt-1.5">{metrics.active}</div>
+            <div className="text-[10px] sm:text-[11px] text-emerald-300/70 mt-1">&le; 2 mnt aktif</div>
           </div>
 
-          <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/20">
+          <div className="p-3.5 sm:p-4 rounded-xl bg-amber-950/20 border border-amber-500/20">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-amber-300 font-medium">🟡 Tidak Aktif</span>
+              <span className="text-xs text-amber-300 font-medium">🟡 Idle</span>
               <Clock className="w-4 h-4 text-amber-400" />
             </div>
-            <div className="text-2xl font-bold text-amber-400 mt-2">{metrics.inactive}</div>
-            <div className="text-[11px] text-amber-300/70 mt-1">&gt; 2 menit idle</div>
+            <div className="text-xl sm:text-2xl font-bold text-amber-400 mt-1.5">{metrics.inactive}</div>
+            <div className="text-[10px] sm:text-[11px] text-amber-300/70 mt-1">&gt; 2 mnt idle</div>
           </div>
 
-          <div className="p-4 rounded-xl bg-cyan-950/20 border border-cyan-500/20">
+          <div className="p-3.5 sm:p-4 rounded-xl bg-cyan-950/20 border border-cyan-500/20">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-cyan-300 font-medium">✅ Submitted</span>
+              <span className="text-xs text-cyan-300 font-medium">✅ Submit</span>
               <CheckCircle className="w-4 h-4 text-cyan-400" />
             </div>
-            <div className="text-2xl font-bold text-cyan-400 mt-2">{metrics.submitted}</div>
-            <div className="text-[11px] text-cyan-300/70 mt-1">Telah dikumpulkan</div>
+            <div className="text-xl sm:text-2xl font-bold text-cyan-400 mt-1.5">{metrics.submitted}</div>
+            <div className="text-[10px] sm:text-[11px] text-cyan-300/70 mt-1">Terkumpul</div>
           </div>
 
-          <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-500/20">
+          <div className="p-3.5 sm:p-4 rounded-xl bg-rose-950/20 border border-rose-500/20 col-span-2 sm:col-span-1 lg:col-span-1">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-rose-300 font-medium">🔴 Last Run Error</span>
+              <span className="text-xs text-rose-300 font-medium">🔴 Error</span>
               <AlertTriangle className="w-4 h-4 text-rose-400" />
             </div>
-            <div className="text-2xl font-bold text-rose-400 mt-2">{metrics.errorCount}</div>
-            <div className="text-[11px] text-rose-300/70 mt-1">Perlu pendampingan</div>
+            <div className="text-xl sm:text-2xl font-bold text-rose-400 mt-1.5">{metrics.errorCount}</div>
+            <div className="text-[10px] sm:text-[11px] text-rose-300/70 mt-1">Perlu bantuan</div>
           </div>
         </div>
 
@@ -664,9 +624,9 @@ export const TeacherDashboardPage: React.FC = () => {
             </div>
 
             {/* Search, Filter Tabs & Refresh */}
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
               {/* Search Box */}
-              <div className="relative min-w-[180px]">
+              <div className="relative flex-1 sm:flex-initial sm:min-w-[180px]">
                 <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-500" />
                 <input 
                   type="text" 
@@ -678,7 +638,7 @@ export const TeacherDashboardPage: React.FC = () => {
               </div>
 
               {/* Status Filter Dropdown / Pills */}
-              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs overflow-x-auto max-w-full">
                 {(['all', 'active', 'inactive', 'not_started', 'submitted', 'error'] as const).map((filter) => {
                   const labels: Record<string, string> = {
                     all: 'Semua',
@@ -692,7 +652,7 @@ export const TeacherDashboardPage: React.FC = () => {
                     <button
                       key={filter}
                       onClick={() => setStatusFilter(filter)}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer shrink-0 whitespace-nowrap ${
                         statusFilter === filter
                           ? 'bg-indigo-600 text-white shadow-sm'
                           : 'text-slate-400 hover:text-slate-200'
@@ -708,7 +668,7 @@ export const TeacherDashboardPage: React.FC = () => {
               <button
                 onClick={handleManualRefresh}
                 title="Muat ulang data live monitoring"
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition cursor-pointer"
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition cursor-pointer shrink-0"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
               </button>
@@ -769,10 +729,10 @@ export const TeacherDashboardPage: React.FC = () => {
                 return (
                   <div 
                     key={student.student_id} 
-                    className="p-3.5 px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/40 transition"
+                    className="p-3 sm:p-3.5 px-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/40 transition"
                   >
                     {/* Left: Student Status & Name */}
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <span 
                         className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                           student.status === 'active' ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50 animate-pulse' :
@@ -788,9 +748,9 @@ export const TeacherDashboardPage: React.FC = () => {
                         }
                       ></span>
 
-                      <div>
-                        <div className="font-semibold text-slate-200 text-sm flex items-center gap-2">
-                          <span>{student.name}</span>
+                      <div className="min-w-0">
+                        <div className="font-semibold text-slate-200 text-sm flex items-center gap-2 flex-wrap">
+                          <span className="truncate">{student.name}</span>
                           {student.status === 'submitted' && (
                             <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-normal">
                               Terkunci
@@ -810,36 +770,38 @@ export const TeacherDashboardPage: React.FC = () => {
                     </div>
 
                     {/* Right: Run Stats, Last Status, and Action Button */}
-                    <div className="flex items-center gap-4 sm:gap-6 ml-5 sm:ml-0">
-                      <span className="font-mono text-slate-300 text-xs">
-                        Run: <strong>{student.run_count}×</strong>
-                      </span>
-
-                      {/* Run Status Badges */}
-                      {isError && (
-                        <span className="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium text-[11px] flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" />
-                          <span>Last Run Error</span>
+                    <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-6 pt-2 sm:pt-0 border-t border-slate-800/40 sm:border-0">
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-slate-300 text-xs">
+                          Run: <strong>{student.run_count}×</strong>
                         </span>
-                      )}
 
-                      {isSuccess && !isError && (
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium text-[11px]">
-                          ✓ Success
-                        </span>
-                      )}
+                        {/* Run Status Badges */}
+                        {isError && (
+                          <span className="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium text-[11px] flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>Last Run Error</span>
+                          </span>
+                        )}
 
-                      {!isSuccess && !isError && student.status === 'not_started' && (
-                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-medium text-[11px]">
-                          ⚪ Belum Mulai
-                        </span>
-                      )}
+                        {isSuccess && !isError && (
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium text-[11px]">
+                            ✓ Success
+                          </span>
+                        )}
+
+                        {!isSuccess && !isError && student.status === 'not_started' && (
+                          <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-medium text-[11px]">
+                            ⚪ Belum Mulai
+                          </span>
+                        )}
+                      </div>
 
                       {/* Button to Open Live Code Viewer (PRD F10) */}
                       <button 
                         onClick={() => setViewingStudent(student)}
                         disabled={!student.submission_id}
-                        className={`text-xs font-medium px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
+                        className={`text-xs font-medium px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
                           student.submission_id
                             ? 'text-indigo-400 hover:text-white hover:bg-indigo-600/20 border border-indigo-500/30'
                             : 'text-slate-600 border border-transparent cursor-not-allowed'
@@ -1015,8 +977,8 @@ export const TeacherDashboardPage: React.FC = () => {
 
       {/* MODAL 3: Live Code Viewer (PRD F10) */}
       {viewingStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[90dvh] flex flex-col shadow-2xl overflow-hidden">
             
             {/* Modal Header */}
             <div className="p-4 px-6 border-b border-slate-800 bg-slate-900 flex items-center justify-between">

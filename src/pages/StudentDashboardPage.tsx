@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { sanitizeClassCode, calculateStudentMetrics } from '../utils/editor';
 import type { EnrolledClassModel, StudentSessionItem } from '../types/database.types';
 import { 
   Code2, 
@@ -222,7 +223,7 @@ export const StudentDashboardPage: React.FC = () => {
     setJoinError(null);
     setJoinSuccess(null);
 
-    const cleanCode = classCode.trim().toUpperCase();
+    const cleanCode = sanitizeClassCode(classCode);
     if (!cleanCode) {
       setJoinError('Silakan masukkan kode kelas.');
       return;
@@ -344,25 +345,19 @@ export const StudentDashboardPage: React.FC = () => {
   };
 
   // Metrics summary
-  const metrics = useMemo(() => {
-    const total = sessions.length;
-    const submitted = sessions.filter(s => s.submission?.status === 'submitted').length;
-    const inProgress = sessions.filter(s => s.submission?.status === 'in_progress').length;
-    const notStarted = total - (submitted + inProgress);
-    return { total, submitted, inProgress, notStarted };
-  }, [sessions]);
+  const metrics = useMemo(() => calculateStudentMetrics(sessions), [sessions]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-white">
       {/* Top Navigation */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md px-6 py-3.5 sticky top-0 z-20">
+      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md px-4 sm:px-6 py-3.5 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-cyan-600 flex items-center justify-center font-bold text-white shadow-lg shadow-cyan-600/30">
+            <div className="h-9 w-9 rounded-xl bg-cyan-600 flex items-center justify-center font-bold text-white shadow-lg shadow-cyan-600/30 shrink-0">
               <Code2 className="w-5 h-5" />
             </div>
             <div>
-              <span className="font-extrabold text-lg font-mono tracking-tight text-white">
+              <span className="font-extrabold text-base sm:text-lg font-mono tracking-tight text-white">
                 Code<span className="text-cyan-400">Monitor</span>
               </span>
               <span className="ml-2 text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">
@@ -371,7 +366,7 @@ export const StudentDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <ThemeToggle />
             <div className="text-right hidden sm:block">
               <div className="text-sm font-semibold text-slate-200">{profile?.name || 'Peserta Didik'}</div>
@@ -379,10 +374,10 @@ export const StudentDashboardPage: React.FC = () => {
             </div>
             <button
               onClick={() => signOut()}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium border border-slate-700 transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium border border-slate-700 transition cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>Keluar</span>
+              <span className="hidden sm:inline">Keluar</span>
             </button>
           </div>
         </div>
@@ -405,18 +400,18 @@ export const StudentDashboardPage: React.FC = () => {
         )}
 
         {/* Welcome & Join Class Banner */}
-        <div className="p-6 rounded-2xl bg-gradient-to-r from-cyan-950/50 via-slate-900/80 to-slate-900/50 border border-cyan-500/20 flex flex-col md:flex-row md:items-center justify-between gap-5">
+        <div className="p-4 sm:p-6 rounded-2xl bg-gradient-to-r from-cyan-950/50 via-slate-900/80 to-slate-900/50 border border-cyan-500/20 flex flex-col md:flex-row md:items-center justify-between gap-4 sm:gap-5">
           <div className="space-y-1">
-            <h1 className="text-2xl font-bold text-white">
+            <h1 className="text-xl sm:text-2xl font-bold text-white">
               Halo, {profile?.name || 'Peserta Didik'}!
             </h1>
-            <p className="text-sm text-slate-300">
+            <p className="text-xs sm:text-sm text-slate-300">
               Selamat datang di workspace praktik coding Anda. Pilih sesi praktik di bawah dan mulai menulis program.
             </p>
 
             {/* Active Class & Switcher */}
             {enrolledClasses.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2.5 pt-2 text-xs text-slate-300">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 pt-2 text-xs text-slate-300">
                 <span>Kelas Saat Ini:</span>
                 <div className="relative inline-block">
                   <select
@@ -443,7 +438,7 @@ export const StudentDashboardPage: React.FC = () => {
           </div>
           
           {/* Join class card (PRD F02) */}
-          <div className="shrink-0 w-full md:w-auto">
+          <div className="shrink-0 w-full md:w-auto pt-2 sm:pt-0">
             <form onSubmit={handleJoinClass} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <input
                 type="text"
@@ -451,12 +446,12 @@ export const StudentDashboardPage: React.FC = () => {
                 onChange={(e) => setClassCode(e.target.value.toUpperCase())}
                 placeholder="Kode Kelas (cth: ELX7K2)"
                 maxLength={8}
-                className="px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder:text-slate-500 font-mono uppercase focus:outline-none focus:border-cyan-500 transition min-w-[200px]"
+                className="px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder:text-slate-500 font-mono uppercase focus:outline-none focus:border-cyan-500 transition min-w-0 sm:min-w-[200px] w-full sm:w-auto"
               />
               <button
                 type="submit"
                 disabled={isJoining}
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 active:scale-[0.99] text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition shadow-lg shadow-cyan-600/20 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 active:scale-[0.99] text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition shadow-lg shadow-cyan-600/20 disabled:opacity-50 cursor-pointer shrink-0"
               >
                 <PlusCircle className="w-4 h-4" />
                 <span>{isJoining ? 'Memeriksa...' : 'Gabung Kelas'}</span>
