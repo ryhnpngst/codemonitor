@@ -335,7 +335,7 @@ export const LoginPage: React.FC = () => {
 
       {/* Footer */}
       <footer className="w-full max-w-7xl mx-auto px-6 py-4 text-center text-xs text-slate-500 border-t border-slate-900 z-10 flex items-center justify-center">
-        <p>© 2026 CodeMonito</p>
+        <p>© 2026 CodeMonitor</p>
       </footer>
     </div>
   );

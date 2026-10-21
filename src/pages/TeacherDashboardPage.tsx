@@ -166,6 +166,8 @@ export const TeacherDashboardPage: React.FC = () => {
         } | null;
       }
 
+      let members: ClassMemberResponse[] = [];
+
       const { data: memberData, error: memberErr } = await supabase
         .from('class_members')
         .select(`
@@ -174,13 +176,31 @@ export const TeacherDashboardPage: React.FC = () => {
         `)
         .eq('class_id', classId);
 
-      if (memberErr) {
-        console.warn('Error fetching class members:', memberErr.message);
-        setIsLoading(false);
-        return;
-      }
+      if (!memberErr && memberData) {
+        members = memberData as unknown as ClassMemberResponse[];
+      } else {
+        // Fallback: If foreign key relationship alias is not in schema cache, fetch directly
+        const { data: simpleData } = await supabase
+          .from('class_members')
+          .select('student_id')
+          .eq('class_id', classId);
 
-      const members = (memberData as unknown as ClassMemberResponse[]) || [];
+        if (simpleData && simpleData.length > 0) {
+          const studentIds = simpleData.map((s: any) => s.student_id);
+          const { data: profs } = await supabase
+            .from('profiles')
+            .select('id, name, email')
+            .in('id', studentIds);
+
+          const profMap = new Map((profs || []).map((p: any) => [p.id, p]));
+          members = simpleData.map((s: any) => ({
+            student_id: s.student_id,
+            profiles: profMap.get(s.student_id) || null,
+          }));
+        } else {
+          members = [];
+        }
+      }
 
       // Step B: Fetch submissions for this session
       let submissions: Record<string, any> = {};
@@ -677,6 +697,15 @@ export const TeacherDashboardPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Table Column Headers */}
+          <div className="hidden sm:grid grid-cols-12 px-6 py-2.5 bg-slate-950/60 border-b border-slate-800/80 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+            <div className="col-span-6">Nama Siswa & Aktivitas</div>
+            <div className="col-span-6 flex items-center justify-end gap-6 sm:gap-8">
+              <span>Status & Eksekusi</span>
+              <span className="w-28 text-right">Aksi</span>
+            </div>
+          </div>
+
           {/* Student Table Rows */}
           <div className="divide-y divide-slate-800/60 text-xs">
             {isLoading ? (
@@ -685,15 +714,33 @@ export const TeacherDashboardPage: React.FC = () => {
                 <span>Memuat data siswa dari database...</span>
               </div>
             ) : filteredStudents.length === 0 ? (
-              <div className="p-12 text-center text-slate-400 space-y-2">
-                <Users className="w-8 h-8 mx-auto text-slate-600" />
-                <div className="font-semibold text-slate-300">
-                  {students.length === 0 ? 'Belum ada siswa yang bergabung di kelas ini.' : 'Tidak ada siswa yang sesuai filter.'}
+              <div className="p-12 text-center text-slate-400 space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-slate-800/60 border border-slate-700/60 flex items-center justify-center mx-auto text-slate-400">
+                  <Users className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <div className="font-semibold text-slate-200 text-sm">
+                    {students.length === 0 ? 'Belum ada siswa' : 'Tidak ada siswa yang sesuai filter'}
+                  </div>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                    {students.length === 0 
+                      ? (activeClass 
+                          ? `Belum ada siswa yang bergabung di kelas ${activeClass.name}. Bagikan kode kelas kepada siswa untuk bergabung.` 
+                          : 'Belum ada kelas yang dipilih atau dibuat. Silakan tambahkan kelas terlebih dahulu.')
+                      : 'Coba ubah kata kunci pencarian atau filter status yang dipilih.'}
+                  </p>
                 </div>
                 {students.length === 0 && activeClass && (
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    Bagikan kode kelas <strong className="font-mono text-indigo-400">{activeClass.class_code}</strong> kepada siswa untuk bergabung.
-                  </p>
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-950/60 border border-indigo-500/30 text-indigo-300 text-xs font-mono">
+                    <span>Kode Kelas: <strong>{activeClass.class_code}</strong></span>
+                    <button
+                      onClick={() => handleCopyClassCode(activeClass.class_code)}
+                      className="hover:text-white transition cursor-pointer"
+                      title="Salin kode kelas"
+                    >
+                      {copiedClassCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 )}
               </div>
             ) : (
@@ -1028,7 +1075,7 @@ export const TeacherDashboardPage: React.FC = () => {
 
       {/* Footer */}
       <footer className="w-full max-w-7xl mx-auto px-6 py-4 text-center text-xs text-slate-500 border-t border-slate-900 z-10 flex items-center justify-center">
-        <p>© 2026 CodeMonitor.</p>
+        <p>© 2026 CodeMonitor</p>
       </footer>
     </div>
   );

@@ -227,6 +227,11 @@ export const RegisterPage: React.FC = () => {
 
         </div>
 
+        {/* Footer */}
+        <footer className="w-full text-center text-xs text-slate-500 mt-6 z-10">
+          <p>© 2026 CodeMonitor</p>
+        </footer>
+
       </div>
     </div>
   );
