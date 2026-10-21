@@ -121,9 +121,7 @@ export const StudentPracticePage: React.FC = () => {
         setSubmission(subData as SubmissionModel);
         setCode(subData.code || getDefaultStarterCode(sessData.language));
         changeCountRef.current = subData.change_count || 0;
-        if (subData.status === 'submitted') {
-          setIsSubmitted(true);
-        }
+        setIsSubmitted(subData.status === 'submitted');
       } else {
         // Create initial submission row
         const defaultCode = getDefaultStarterCode(sessData.language);
@@ -176,6 +174,35 @@ export const StudentPracticePage: React.FC = () => {
   useEffect(() => {
     fetchSessionData();
   }, [fetchSessionData]);
+
+  // Real-time listener for submission status (e.g. when Teacher reopens submission)
+  useEffect(() => {
+    if (!sessionId || !user || !isSupabaseConfigured) return;
+
+    const channel = supabase
+      .channel(`student-sub-listener-${sessionId}-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'submissions',
+          filter: `student_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const updated = payload.new as SubmissionModel;
+          if (updated && updated.session_id === sessionId) {
+            setSubmission(updated);
+            setIsSubmitted(updated.status === 'submitted');
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [sessionId, user]);
 
   // Cleanup timers on unmount
   useEffect(() => {

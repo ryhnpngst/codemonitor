@@ -86,6 +86,11 @@ describe('Classroom Utilities', () => {
       expect(calculateStudentStatus({ status: 'submitted' }, fixedNow)).toBe('submitted');
     });
 
+    it('harus kembali menjadi "active" atau "inactive" jika submission di-reopen oleh guru menjadi in_progress', () => {
+      const recent = new Date(fixedNow - 30 * 1000).toISOString();
+      expect(calculateStudentStatus({ status: 'in_progress', last_activity_at: recent }, fixedNow)).toBe('active');
+    });
+
     it('harus mengembalikan "active" jika aktivitas terjadi dalam jendela 2 menit (<= 120 detik)', () => {
       const oneMinuteAgo = new Date(fixedNow - 60 * 1000).toISOString();
       expect(calculateStudentStatus({ status: 'in_progress', last_activity_at: oneMinuteAgo }, fixedNow)).toBe('active');

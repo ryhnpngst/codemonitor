@@ -117,6 +117,15 @@ create policy "Allow students to insert own submission" on public.submissions
 create policy "Allow students to update own submission" on public.submissions
   for update to authenticated using (student_id = auth.uid());
 
+create policy "Allow teachers to update submissions" on public.submissions
+  for update to authenticated using (
+    exists (
+      select 1 from public.practice_sessions ps
+      join public.classes c on c.id = ps.class_id
+      where ps.id = submissions.session_id and c.teacher_id = auth.uid()
+    )
+  );
+
 -- ========================================================
 -- FUNCTION & TRIGGER: Auto create profile on auth signup
 -- ========================================================

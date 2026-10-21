@@ -17,6 +17,7 @@ import {
   Copy,
   Check,
   RefreshCw,
+  RotateCcw,
   X,
   AlertTriangle,
   Eye,
@@ -66,6 +67,16 @@ export const TeacherDashboardPage: React.FC = () => {
     session: null,
     targetStatus: 'Closed',
   });
+
+  // Reopen Submission Confirmation Modal
+  const [reopenModal, setReopenModal] = useState<{
+    isOpen: boolean;
+    student: StudentMonitorItem | null;
+  }>({
+    isOpen: false,
+    student: null,
+  });
+  const [isReopening, setIsReopening] = useState<boolean>(false);
 
   // Live Code Viewer Modal
   const [viewingStudent, setViewingStudent] = useState<StudentMonitorItem | null>(null);
@@ -443,6 +454,63 @@ export const TeacherDashboardPage: React.FC = () => {
       alert('Terjadi kesalahan saat memperbarui status sesi.');
     } finally {
       setIsUpdatingSessionStatus(false);
+    }
+  };
+
+  // Handler: Open Reopen Submission Modal
+  const handleOpenReopenModal = (student: StudentMonitorItem) => {
+    setReopenModal({
+      isOpen: true,
+      student,
+    });
+  };
+
+  // Handler: Confirm Reopen Submission (Active / In Progress)
+  const handleConfirmReopen = async () => {
+    const student = reopenModal.student;
+    if (!student || !selectedSessionId || !isSupabaseConfigured) return;
+
+    setIsReopening(true);
+    try {
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from('submissions')
+        .update({
+          status: 'in_progress',
+          submitted_at: null,
+          updated_at: now,
+          last_activity_at: now,
+        })
+        .eq('session_id', selectedSessionId)
+        .eq('student_id', student.student_id);
+
+      if (error) {
+        alert('Gagal membuka kembali submission: ' + error.message);
+        return;
+      }
+
+      setStudents(prev => prev.map(s => {
+        if (s.student_id === student.student_id) {
+          return {
+            ...s,
+            status: 'active',
+            submitted_at: null,
+            last_activity_at: now,
+          };
+        }
+        return s;
+      }));
+
+      if (viewingStudent && viewingStudent.student_id === student.student_id) {
+        setViewingStudent(prev => prev ? ({ ...prev, status: 'active', submitted_at: null }) : null);
+      }
+
+      setReopenModal({ isOpen: false, student: null });
+    } catch (err: unknown) {
+      console.error('Error reopening submission:', err);
+      alert('Terjadi kesalahan saat membuka kembali submission.');
+    } finally {
+      setIsReopening(false);
     }
   };
 
@@ -915,19 +983,32 @@ export const TeacherDashboardPage: React.FC = () => {
                         )}
                       </div>
 
-                      {/* Button to Open Live Code Viewer (PRD F10) */}
-                      <button 
-                        onClick={() => setViewingStudent(student)}
-                        disabled={!student.submission_id}
-                        className={`text-xs font-medium px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                          student.submission_id
-                            ? 'text-indigo-400 hover:text-white hover:bg-indigo-600/20 border border-indigo-500/30'
-                            : 'text-slate-600 border border-transparent cursor-not-allowed'
-                        }`}
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Buka Live Code</span>
-                      </button>
+                      {/* Action Buttons: Reopen (if submitted) & Live Code Viewer */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {student.status === 'submitted' && (
+                          <button
+                            onClick={() => handleOpenReopenModal(student)}
+                            title="Buka kembali submission siswa ini agar dapat merevisi pekerjaan"
+                            className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-amber-300 hover:text-white bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                            <span className="hidden sm:inline">Reopen</span>
+                          </button>
+                        )}
+
+                        <button 
+                          onClick={() => setViewingStudent(student)}
+                          disabled={!student.submission_id}
+                          className={`text-xs font-medium px-2.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                            student.submission_id
+                              ? 'text-indigo-400 hover:text-white hover:bg-indigo-600/20 border border-indigo-500/30'
+                              : 'text-slate-600 border border-transparent cursor-not-allowed'
+                          }`}
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Buka Live Code</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1192,6 +1273,66 @@ export const TeacherDashboardPage: React.FC = () => {
         </div>
       )}
 
+      {/* MODAL: Reopen Submission Confirmation */}
+      {reopenModal.isOpen && reopenModal.student && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center justify-center shrink-0">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">Reopen Submission?</h3>
+                  <p className="text-xs text-slate-400">
+                    Siswa: <strong className="text-white">{reopenModal.student.name}</strong>
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setReopenModal({ isOpen: false, student: null })}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/30 text-amber-200 text-xs space-y-1.5 leading-relaxed">
+              <div className="font-semibold text-amber-300 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Konsekuensi Buka Kembali (Reopen):</span>
+              </div>
+              <ul className="list-disc list-inside space-y-1 text-slate-300 pl-1 text-[11px]">
+                <li>Status pengumpulan siswa akan kembali menjadi <strong>In Progress</strong>.</li>
+                <li>Editor siswa otomatis <strong>terbuka kembali (unlocked)</strong> sehingga siswa dapat merevisi dan menguji coba kode.</li>
+                <li>Siswa dapat mengumpulkan ulang pekerjaan setelah revisi selesai.</li>
+                <li>Riwayat kode dan total Run siswa sebelumnya tetap tersimpan aman.</li>
+              </ul>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setReopenModal({ isOpen: false, student: null })}
+                disabled={isReopening}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReopen}
+                disabled={isReopening}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm shadow-amber-600/30 cursor-pointer disabled:opacity-50"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isReopening ? 'animate-spin' : ''}`} />
+                <span>{isReopening ? 'Membuka...' : 'Ya, Buka Kunci Submission'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL 3: Live Code Viewer (PRD F10) */}
       {viewingStudent && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
@@ -1257,10 +1398,21 @@ export const TeacherDashboardPage: React.FC = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-3 px-6 border-t border-slate-800 bg-slate-900/80 text-right">
+            <div className="p-3 px-6 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between">
+              <div>
+                {viewingStudent.status === 'submitted' && (
+                  <button
+                    onClick={() => handleOpenReopenModal(viewingStudent)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Reopen Submission (Izinkan Revisi)</span>
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => setViewingStudent(null)}
-                className="px-4 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white text-xs font-medium transition"
+                className="px-4 py-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white text-xs font-medium transition cursor-pointer"
               >
                 Tutup Viewer
               </button>
