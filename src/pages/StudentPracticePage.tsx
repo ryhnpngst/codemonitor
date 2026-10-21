@@ -9,6 +9,7 @@ import { getDefaultStarterCode } from '../utils/editor';
 import type { PracticeSessionModel, SubmissionModel } from '../types/database.types';
 import { 
   ArrowLeft, 
+  ArrowRight,
   Play, 
   Square,
   Check, 
@@ -55,6 +56,12 @@ export const StudentPracticePage: React.FC = () => {
   const runTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const stopRequestedRef = useRef<boolean>(false);
   const stopRejectRef = useRef<((reason: 'stop' | 'timeout') => void) | null>(null);
+
+  // State: Interactive Terminal Input (for Python input())
+  const [isWaitingForInput, setIsWaitingForInput] = useState<boolean>(false);
+  const [terminalInputValue, setTerminalInputValue] = useState<string>('');
+  const inputResolveRef = useRef<((value: string) => void) | null>(null);
+  const terminalInputRef = useRef<HTMLInputElement>(null);
 
   // Terminal output
   const [terminalOutput, setTerminalOutput] = useState<{ text: string; type: 'stdout' | 'stderr' | 'system' }[]>([
@@ -230,6 +237,18 @@ export const StudentPracticePage: React.FC = () => {
     }, 1500);
   };
 
+  // Helper: Reset 15s safety timeout
+  const resetSafetyTimeout = useCallback(() => {
+    if (runTimeoutRef.current) {
+      clearTimeout(runTimeoutRef.current);
+    }
+    runTimeoutRef.current = setTimeout(() => {
+      if (stopRejectRef.current) {
+        stopRejectRef.current('timeout');
+      }
+    }, 15000);
+  }, []);
+
   // Stop Python execution (PRD F06 / F08)
   const handleStopPython = useCallback((timedOut: boolean = false) => {
     stopRequestedRef.current = true;
@@ -241,8 +260,77 @@ export const StudentPracticePage: React.FC = () => {
       stopRejectRef.current(timedOut ? 'timeout' : 'stop');
       stopRejectRef.current = null;
     }
+    // Cancel interactive terminal input if currently waiting
+    if (inputResolveRef.current) {
+      inputResolveRef.current('');
+      inputResolveRef.current = null;
+      setIsWaitingForInput(false);
+      setTerminalInputValue('');
+    }
     setIsRunning(false);
   }, []);
+
+  // Interactive Terminal Input Submit Handler
+  const handleTerminalInputSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const val = terminalInputValue;
+    setIsWaitingForInput(false);
+    setTerminalInputValue('');
+
+    // Echo input to terminal output
+    setTerminalOutput(prev => [
+      ...prev,
+      { text: `> ${val}`, type: 'stdout' }
+    ]);
+
+    if (inputResolveRef.current) {
+      inputResolveRef.current(val);
+      inputResolveRef.current = null;
+    }
+    resetSafetyTimeout();
+  };
+
+  // Register JS bridge for Python input()
+  useEffect(() => {
+    (window as any).__codeMonitorAppendOutput = (text: string, type: 'stdout' | 'stderr' = 'stdout') => {
+      if (text) {
+        setTerminalOutput(prev => [...prev, { text, type }]);
+      }
+    };
+
+    (window as any).__codeMonitorRequestInput = (promptText: string) => {
+      // Pause 15s safety timeout while user is typing in terminal
+      if (runTimeoutRef.current) {
+        clearTimeout(runTimeoutRef.current);
+        runTimeoutRef.current = null;
+      }
+
+      // Auto switch to terminal tab on mobile
+      if (window.innerWidth < 1024) {
+        setMobileTab('terminal');
+      }
+
+      // Output prompt text to terminal if provided
+      if (promptText) {
+        setTerminalOutput(prev => [...prev, { text: promptText, type: 'stdout' }]);
+      }
+
+      return new Promise<string>((resolve) => {
+        inputResolveRef.current = resolve;
+        setIsWaitingForInput(true);
+        setTerminalInputValue('');
+        setTimeout(() => {
+          terminalInputRef.current?.focus();
+          terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 50);
+      });
+    };
+
+    return () => {
+      delete (window as any).__codeMonitorAppendOutput;
+      delete (window as any).__codeMonitorRequestInput;
+    };
+  }, [resetSafetyTimeout]);
 
   // 3. Load Pyodide WebAssembly for Python Runner (PRD F06)
   const initPyodide = useCallback(async () => {
@@ -264,13 +352,99 @@ export const StudentPracticePage: React.FC = () => {
 
       const pyodide = await (window as any).loadPyodide();
       
-      // Setup stdin with prompt
+      // Fallback stdin without browser alert/prompt
       pyodide.setStdin({
-        stdin: () => {
-          const input = window.prompt('Masukkan input untuk program Python:');
-          return input !== null ? input : '';
-        }
+        stdin: () => ''
       });
+
+      // Register Python AST transformer and async input bridge in Pyodide
+      await pyodide.runPythonAsync(`
+import ast
+import js
+import sys
+
+class _CodeMonitorAsyncInputTransformer(ast.NodeTransformer):
+    def __init__(self):
+        super().__init__()
+        self.async_funcs = set()
+
+    def find_async_funcs(self, tree):
+        changed = True
+        while changed:
+            changed = False
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node.name not in self.async_funcs:
+                        for child in ast.walk(node):
+                            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                                if child.func.id == 'input' or child.func.id in self.async_funcs:
+                                    self.async_funcs.add(node.name)
+                                    changed = True
+                                    break
+
+    def visit_FunctionDef(self, node):
+        self.generic_visit(node)
+        if node.name in self.async_funcs:
+            new_node = ast.AsyncFunctionDef(
+                name=node.name,
+                args=node.args,
+                body=node.body,
+                decorator_list=node.decorator_list,
+                returns=node.returns,
+                type_comment=node.type_comment
+            )
+            return ast.copy_location(new_node, node)
+        return node
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if isinstance(node.func, ast.Name):
+            if node.func.id == 'input':
+                return ast.Await(
+                    value=ast.Call(
+                        func=ast.Name(id='__codemonitor_input__', ctx=ast.Load()),
+                        args=node.args,
+                        keywords=node.keywords
+                    )
+                )
+            elif node.func.id in self.async_funcs:
+                return ast.Await(value=node)
+        return node
+
+def __transform_user_code__(code_str):
+    if 'input' not in code_str:
+        return code_str
+    try:
+        tree = ast.parse(code_str)
+        t = _CodeMonitorAsyncInputTransformer()
+        t.find_async_funcs(tree)
+        new_tree = t.visit(tree)
+        ast.fix_missing_locations(new_tree)
+        return ast.unparse(new_tree)
+    except Exception:
+        return code_str
+
+async def __codemonitor_input__(*args, **kwargs):
+    try:
+        import sys
+        b_out = sys.stdout.getvalue()
+        if b_out:
+            js.window.__codeMonitorAppendOutput(b_out, 'stdout')
+            sys.stdout.seek(0)
+            sys.stdout.truncate(0)
+        b_err = sys.stderr.getvalue()
+        if b_err:
+            js.window.__codeMonitorAppendOutput(b_err, 'stderr')
+            sys.stderr.seek(0)
+            sys.stderr.truncate(0)
+    except Exception:
+        pass
+
+    prompt = args[0] if len(args) > 0 else kwargs.get('prompt', '')
+    p_str = str(prompt) if prompt is not None else ''
+    res = await js.window.__codeMonitorRequestInput(p_str)
+    return str(res) if res is not None else ''
+`);
 
       pyodideInstanceRef.current = pyodide;
       setIsPyodideReady(true);
@@ -327,18 +501,24 @@ sys.stdout = StringIO()
 sys.stderr = StringIO()
 `);
 
+      // Prepare executable code: transform input() to async modal bridge if needed
+      let executableCode = code;
+      try {
+        pyodide.globals.set('__raw_student_code__', code);
+        executableCode = await pyodide.runPythonAsync('__transform_user_code__(__raw_student_code__)');
+      } catch (transformErr) {
+        console.warn('Code transform fallback:', transformErr);
+        executableCode = code;
+      }
+
       // Race between student execution, user clicking Stop, and 15s timeout
-      const executionPromise = pyodide.runPythonAsync(code);
+      const executionPromise = pyodide.runPythonAsync(executableCode);
       const stopOrTimeoutPromise = new Promise<'stop' | 'timeout'>((resolve) => {
         stopRejectRef.current = resolve;
       });
 
       // 15 seconds safety timeout
-      runTimeoutRef.current = setTimeout(() => {
-        if (stopRejectRef.current) {
-          stopRejectRef.current('timeout');
-        }
-      }, 15000);
+      resetSafetyTimeout();
 
       const raceResult = await Promise.race([
         executionPromise.then(() => ({ status: 'completed' as const })),
@@ -830,6 +1010,12 @@ sys.stderr = sys.__stderr__
                       (Menyiapkan runtime Python...)
                     </span>
                   )}
+                  {isWaitingForInput && (
+                    <span className="inline-flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-sans font-medium animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                      <span>Menunggu input terminal...</span>
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -854,7 +1040,14 @@ sys.stderr = sys.__stderr__
               </div>
 
               {/* Terminal Body */}
-              <div className="flex-1 p-3.5 overflow-y-auto font-mono text-xs leading-relaxed select-text bg-slate-950/80">
+              <div 
+                onClick={() => {
+                  if (isWaitingForInput) {
+                    terminalInputRef.current?.focus();
+                  }
+                }}
+                className="flex-1 p-3.5 overflow-y-auto font-mono text-xs leading-relaxed select-text bg-slate-950/80 cursor-text"
+              >
                 {terminalOutput.map((item, idx) => (
                   <div 
                     key={idx}
@@ -867,6 +1060,32 @@ sys.stderr = sys.__stderr__
                     {item.text}
                   </div>
                 ))}
+
+                {/* Inline Terminal Input Prompt (when Python calls input()) */}
+                {isWaitingForInput && (
+                  <form 
+                    onSubmit={handleTerminalInputSubmit}
+                    className="flex items-center gap-2 mt-2 p-1.5 rounded-lg bg-slate-900 border border-cyan-500/40 shadow-inner"
+                  >
+                    <span className="text-emerald-400 font-bold select-none text-sm">&gt;</span>
+                    <input
+                      ref={terminalInputRef}
+                      type="text"
+                      value={terminalInputValue}
+                      onChange={(e) => setTerminalInputValue(e.target.value)}
+                      placeholder="Ketik input di sini lalu tekan Enter..."
+                      autoFocus
+                      className="flex-1 bg-transparent border-none text-white focus:outline-none font-mono text-xs p-0 m-0 placeholder:text-slate-500 placeholder:italic"
+                    />
+                    <button
+                      type="submit"
+                      className="px-2.5 py-1 rounded-md bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-sans font-semibold shrink-0 cursor-pointer transition shadow-sm"
+                    >
+                      Kirim ↵
+                    </button>
+                  </form>
+                )}
+
                 <div ref={terminalEndRef} />
               </div>
 
