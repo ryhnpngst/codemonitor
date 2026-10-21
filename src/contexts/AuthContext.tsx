@@ -40,25 +40,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchProfile = useCallback(async (userId: string, userEmail: string): Promise<Profile | null> => {
+  const fetchProfile = useCallback(async (userId: string, userEmail: string, userMetadata?: Record<string, any>): Promise<Profile | null> => {
     if (!isSupabaseConfigured) return null;
     try {
-      const { data, error: profileErr } = await supabase
+      const { data } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
+        .maybeSingle();
+
+      if (data) {
+        return data as Profile;
+      }
+
+      // Profile was missing from database (e.g. manually deleted in Supabase Table Editor or trigger issue)
+      // Auto-heal by inserting back into public.profiles to satisfy foreign key constraints
+      console.warn('Profile not found in database, auto-creating/restoring profile in public.profiles');
+      const fallbackName = userMetadata?.name || userEmail.split('@')[0] || 'User';
+      const fallbackRole: UserRole = (userMetadata?.role === 'teacher' ? 'teacher' : 'student');
+
+      const restoredProfile: Profile = {
+        id: userId,
+        name: fallbackName,
+        email: userEmail,
+        role: fallbackRole,
+        created_at: new Date().toISOString(),
+      };
+
+      const { data: insertedData, error: insertErr } = await supabase
+        .from('profiles')
+        .upsert({
+          id: userId,
+          name: fallbackName,
+          email: userEmail,
+          role: fallbackRole,
+        })
+        .select()
         .single();
 
-      if (profileErr || !data) {
-        console.warn('Profile not found in database, creating fallback profile from metadata');
-        return {
-          id: userId,
-          name: userEmail.split('@')[0],
-          email: userEmail,
-          role: 'student', // default fallback
-        };
+      if (!insertErr && insertedData) {
+        return insertedData as Profile;
       }
-      return data as Profile;
+
+      return restoredProfile;
     } catch (err) {
       console.error('Failed to fetch profile:', err);
       return null;
@@ -91,7 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           setUser({ id: session.user.id, email: session.user.email || '' });
-          const userProfile = await fetchProfile(session.user.id, session.user.email || '');
+          const userProfile = await fetchProfile(session.user.id, session.user.email || '', session.user.user_metadata);
           setProfile(userProfile);
         }
       } catch (err) {
@@ -106,7 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email || '' });
-        const userProfile = await fetchProfile(session.user.id, session.user.email || '');
+        const userProfile = await fetchProfile(session.user.id, session.user.email || '', session.user.user_metadata);
         setProfile(userProfile);
       } else if (!localStorage.getItem('codemonitor_demo_user')) {
         setUser(null);
@@ -156,7 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (data.user) {
         setUser({ id: data.user.id, email: data.user.email || '' });
-        const userProfile = await fetchProfile(data.user.id, data.user.email || '');
+        const userProfile = await fetchProfile(data.user.id, data.user.email || '', data.user.user_metadata);
         setProfile(userProfile);
         setIsLoading(false);
         return { success: true, role: userProfile?.role || 'student' };

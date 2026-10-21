@@ -337,6 +337,24 @@ export const TeacherDashboardPage: React.FC = () => {
 
     setIsCreatingClass(true);
     try {
+      // Ensure teacher profile exists in public.profiles (to satisfy foreign key constraint)
+      const { data: profCheck } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (!profCheck) {
+        await supabase
+          .from('profiles')
+          .upsert({
+            id: user.id,
+            name: profile?.name || user.email.split('@')[0] || 'Guru',
+            email: user.email,
+            role: 'teacher',
+          });
+      }
+
       const classCode = generateClassCode();
       const { data, error } = await supabase
         .from('classes')

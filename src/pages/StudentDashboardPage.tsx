@@ -264,13 +264,51 @@ export const StudentDashboardPage: React.FC = () => {
         return;
       }
 
-      // Step C: Insert into class_members
-      const { error: joinErr } = await supabase
+      // Step C: Ensure student profile exists in public.profiles (to satisfy foreign key constraint)
+      const { data: profCheck } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (!profCheck) {
+        const studentName = profile?.name || user.email.split('@')[0] || 'Siswa';
+        await supabase
+          .from('profiles')
+          .upsert({
+            id: user.id,
+            name: studentName,
+            email: user.email,
+            role: 'student',
+          });
+      }
+
+      // Step D: Insert into class_members
+      let { error: joinErr } = await supabase
         .from('class_members')
         .insert({
           class_id: foundClass.id,
           student_id: user.id,
         });
+
+      // Self-healing retry if foreign key constraint error occurred
+      if (joinErr && (joinErr.message.includes('foreign key') || joinErr.message.includes('class_members_student_id_fkey'))) {
+        const studentName = profile?.name || user.email.split('@')[0] || 'Siswa';
+        await supabase.from('profiles').upsert({
+          id: user.id,
+          name: studentName,
+          email: user.email,
+          role: 'student',
+        });
+
+        const retryResult = await supabase
+          .from('class_members')
+          .insert({
+            class_id: foundClass.id,
+            student_id: user.id,
+          });
+        joinErr = retryResult.error;
+      }
 
       if (joinErr) {
         setJoinError('Gagal bergabung: ' + joinErr.message);

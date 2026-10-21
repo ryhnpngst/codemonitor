@@ -111,6 +111,24 @@ export const StudentPracticePage: React.FC = () => {
         const defaultCode = getDefaultStarterCode(sessData.language);
         setCode(defaultCode);
 
+        // Ensure student profile exists in public.profiles (to satisfy foreign key constraint)
+        const { data: profCheck } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (!profCheck) {
+          await supabase
+            .from('profiles')
+            .upsert({
+              id: user.id,
+              name: user.email?.split('@')[0] || 'Siswa',
+              email: user.email || '',
+              role: 'student',
+            });
+        }
+
         const { data: newSub, error: createErr } = await supabase
           .from('submissions')
           .insert({
