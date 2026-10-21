@@ -6,10 +6,10 @@ import { useTheme } from '../contexts/ThemeContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { getDefaultStarterCode } from '../utils/editor';
+import { validateArduinoCode, type ArduinoValidationResult } from '../utils/arduino-validator';
 import type { PracticeSessionModel, SubmissionModel } from '../types/database.types';
 import { 
   ArrowLeft, 
-  ArrowRight,
   Play, 
   Square,
   Check, 
@@ -19,6 +19,8 @@ import {
   FileCode, 
   Info, 
   AlertCircle, 
+  AlertTriangle,
+  CheckCheck,
   RotateCcw,
   Lock,
   CheckCircle2
@@ -76,6 +78,10 @@ export const StudentPracticePage: React.FC = () => {
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
   const [mobileTab, setMobileTab] = useState<'editor' | 'terminal' | 'instructions'>('editor');
+
+  // State: Arduino In-Browser Syntax Validation
+  const [arduinoValidation, setArduinoValidation] = useState<ArduinoValidationResult | null>(null);
+  const [showCopyWarningModal, setShowCopyWarningModal] = useState<boolean>(false);
 
   // Scroll terminal to bottom
   useEffect(() => {
@@ -706,11 +712,26 @@ sys.stderr = sys.__stderr__
     }
   };
 
-  // Copy Code helper
-  const handleCopyCode = () => {
+  // Real-time Arduino syntax checking
+  useEffect(() => {
+    if (session && session.language !== 'Python') {
+      const result = validateArduinoCode(code);
+      setArduinoValidation(result);
+    }
+  }, [code, session]);
+
+  // Copy Code helper (with Arduino syntax checking protection)
+  const handleCopyCode = (force: boolean = false) => {
+    if (session?.language !== 'Python' && !force && arduinoValidation && !arduinoValidation.isValid) {
+      setShowCopyWarningModal(true);
+      return;
+    }
     navigator.clipboard.writeText(code);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
+    if (showCopyWarningModal) {
+      setShowCopyWarningModal(false);
+    }
   };
 
   // Clear Terminal
@@ -816,9 +837,36 @@ sys.stderr = sys.__stderr__
         {/* Right: Actions (Run, Copy, Submit) */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <ThemeToggle />
+
+          {/* Arduino Syntax Quick Badge / Trigger Button */}
+          {!isPython && arduinoValidation && (
+            <button
+              onClick={() => setMobileTab('terminal')}
+              title="Lihat rincian inspeksi sintaks Arduino"
+              className={`px-2 sm:px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                arduinoValidation.isValid
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                  : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+              }`}
+            >
+              {arduinoValidation.isValid ? (
+                <>
+                  <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline">Sintaks Valid</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                  <span className="hidden sm:inline">{arduinoValidation.errorsCount} Error Sintaks</span>
+                  <span className="sm:hidden">{arduinoValidation.errorsCount} Err</span>
+                </>
+              )}
+            </button>
+          )}
+
           {/* Copy Code */}
           <button
-            onClick={handleCopyCode}
+            onClick={() => handleCopyCode(false)}
             title="Salin kode ke clipboard"
             className="px-2 sm:px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
           >
@@ -889,7 +937,7 @@ sys.stderr = sys.__stderr__
           <span>Editor</span>
         </button>
 
-        {isPython && (
+        {isPython ? (
           <button
             onClick={() => setMobileTab('terminal')}
             className={`flex-1 py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition cursor-pointer ${
@@ -900,6 +948,21 @@ sys.stderr = sys.__stderr__
           >
             <Terminal className="w-3.5 h-3.5" />
             <span>Terminal</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => setMobileTab('terminal')}
+            className={`flex-1 py-1.5 px-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition cursor-pointer ${
+              mobileTab === 'terminal'
+                ? 'bg-cyan-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            }`}
+          >
+            <CheckCheck className="w-3.5 h-3.5" />
+            <span>Sintaks</span>
+            {arduinoValidation && !arduinoValidation.isValid && (
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse"></span>
+            )}
           </button>
         )}
 
@@ -1119,6 +1182,149 @@ sys.stderr = sys.__stderr__
             </div>
           )}
 
+          {/* Bottom Panel: Syntax Inspector for Arduino / C++ */}
+          {!isPython && (
+            <div className={`border-t border-slate-800 bg-slate-900/95 flex flex-col shrink-0 ${
+              mobileTab === 'editor' ? 'hidden lg:flex h-56' : 'flex-1 lg:h-56'
+            }`}>
+              
+              {/* Title Bar */}
+              <div className="h-8 border-b border-slate-800 px-4 flex items-center justify-between text-xs bg-slate-900 shrink-0">
+                <div className="flex items-center gap-2">
+                  <CheckCheck className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="font-semibold text-slate-300 font-mono text-[11px]">
+                    INSPEKSI SINTAKS ARDUINO / C++
+                  </span>
+                  {arduinoValidation ? (
+                    arduinoValidation.isValid ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-sans font-medium">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                        <span>Sintaks Dasar Valid</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 font-sans font-medium">
+                        <AlertCircle className="w-3 h-3 text-rose-400" />
+                        <span>{arduinoValidation.errorsCount} Kesalahan Terdeteksi</span>
+                      </span>
+                    )
+                  ) : null}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (session && session.language !== 'Python') {
+                        setArduinoValidation(validateArduinoCode(code));
+                      }
+                    }}
+                    title="Periksa ulang sintaks sekarang"
+                    className="text-[11px] text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded hover:bg-slate-800 transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span className="hidden sm:inline">Periksa Ulang</span>
+                  </button>
+                  <button
+                    onClick={() => handleCopyCode(false)}
+                    title="Salin kode ke Arduino IDE"
+                    className="text-[11px] text-cyan-400 hover:text-cyan-300 px-2 py-0.5 rounded bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-800/40 transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span className="hidden sm:inline">Salin ke Arduino IDE</span>
+                    <span className="sm:hidden">Salin</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Inspector Content */}
+              <div className="flex-1 overflow-y-auto p-3 text-xs space-y-2.5 bg-slate-950/70 select-text">
+                {arduinoValidation ? (
+                  arduinoValidation.diagnostics.length === 0 ? (
+                    <div className="rounded-xl bg-emerald-950/20 border border-emerald-500/20 p-3 text-emerald-300 flex items-start gap-3">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <div className="font-semibold text-emerald-200 text-xs">
+                          Kode Lolos Pemeriksaan Sintaks Dasar
+                        </div>
+                        <p className="text-emerald-400/80 text-[11px] leading-relaxed">
+                          Struktur <code className="text-emerald-300 font-mono px-1 py-0.5 rounded bg-emerald-950/50">void setup()</code> dan <code className="text-emerald-300 font-mono px-1 py-0.5 rounded bg-emerald-950/50">void loop()</code> lengkap, tanda kurung seimbang, dan tidak ditemukan kesalahan sintaks umum.
+                        </p>
+                        <div className="pt-2 text-[11px] text-slate-400 border-t border-emerald-500/20 flex flex-wrap gap-x-4 gap-y-1">
+                          <span>1. Klik tombol <strong>Salin</strong></span>
+                          <span>2. Tempelkan (Paste) di Arduino IDE</span>
+                          <span>3. Klik tombol <strong>Verify (✓)</strong> / <strong>Upload (➜)</strong></span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {arduinoValidation.diagnostics.map((diag) => (
+                        <div
+                          key={diag.id}
+                          className={`p-2.5 rounded-lg border text-xs flex items-start justify-between gap-3 ${
+                            diag.severity === 'error'
+                              ? 'bg-rose-950/20 border-rose-500/30 text-rose-200'
+                              : diag.severity === 'warning'
+                              ? 'bg-amber-950/20 border-amber-500/30 text-amber-200'
+                              : 'bg-cyan-950/20 border-cyan-500/30 text-cyan-200'
+                          }`}
+                        >
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            {diag.severity === 'error' ? (
+                              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                            ) : (
+                              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                            )}
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-semibold text-white">
+                                  Baris {diag.line}{diag.column ? `, Kolom ${diag.column}` : ''}
+                                </span>
+                                <span className={`text-[10px] px-1.5 py-0.2 rounded font-medium ${
+                                  diag.severity === 'error'
+                                    ? 'bg-rose-500/20 text-rose-300'
+                                    : 'bg-amber-500/20 text-amber-300'
+                                }`}>
+                                  {diag.severity.toUpperCase()}
+                                </span>
+                                <span className="text-slate-400 text-[11px] font-mono">
+                                  {diag.rule}
+                                </span>
+                              </div>
+                              <p className="text-slate-200 text-xs leading-relaxed">
+                                {diag.message}
+                              </p>
+                              {diag.suggestion && (
+                                <p className="text-slate-300 text-[11px] flex items-start gap-1">
+                                  <span className="text-cyan-400 font-medium shrink-0">💡 Saran:</span>
+                                  <span>{diag.suggestion}</span>
+                                </p>
+                              )}
+                              {diag.snippet && (
+                                <pre className="mt-1 px-2 py-1 rounded bg-slate-950/70 border border-slate-800 text-[11px] font-mono text-slate-300 overflow-x-auto">
+                                  {diag.snippet}
+                                </pre>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <div className="text-slate-500 text-xs italic">
+                    Memeriksa kode...
+                  </div>
+                )}
+
+                <div className="pt-2 text-[11px] text-slate-500 flex items-center gap-1.5 border-t border-slate-800/60">
+                  <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Pemeriksaan ini membantu mendeteksi kesalahan umum di browser sebelum Anda mengunggah kode ke board fisik via Arduino IDE.</span>
+                </div>
+              </div>
+
+            </div>
+          )}
+
         </div>
 
       </div>
@@ -1216,6 +1422,71 @@ sys.stderr = sys.__stderr__
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* COPY WARNING MODAL: Peringatan Sintaks Sebelum Salin Kode */}
+      {showCopyWarningModal && arduinoValidation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-rose-500/30 rounded-2xl p-5 sm:p-6 max-w-md w-full shadow-2xl flex flex-col gap-4 text-left">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white">
+                  Peringatan Sintaks Arduino
+                </h3>
+                <p className="text-xs text-slate-300">
+                  Ditemukan <strong className="text-rose-400">{arduinoValidation.errorsCount} kesalahan sintaks</strong> pada kode Anda. Jika disalin sekarang, kode kemungkinan akan gagal saat di-compile di Arduino IDE.
+                </p>
+              </div>
+            </div>
+
+            {/* Error items preview */}
+            <div className="bg-slate-950/70 rounded-xl border border-slate-800 p-3 max-h-48 overflow-y-auto space-y-2">
+              {arduinoValidation.diagnostics
+                .filter(d => d.severity === 'error')
+                .slice(0, 3)
+                .map(err => (
+                  <div key={err.id} className="text-xs space-y-0.5">
+                    <div className="font-semibold text-rose-300">
+                      Baris {err.line}: {err.message}
+                    </div>
+                    {err.suggestion && (
+                      <div className="text-[11px] text-slate-400">
+                        {err.suggestion}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              {arduinoValidation.errorsCount > 3 && (
+                <p className="text-[11px] text-slate-500 italic">
+                  + {arduinoValidation.errorsCount - 3} kesalahan lainnya...
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCopyWarningModal(false);
+                  setMobileTab('terminal');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition cursor-pointer shadow-sm shadow-cyan-600/30"
+              >
+                Perbaiki Sekarang
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCopyCode(true)}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition cursor-pointer"
+              >
+                Tetap Salin Kode
+              </button>
+            </div>
           </div>
         </div>
       )}
