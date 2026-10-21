@@ -56,6 +56,17 @@ export const TeacherDashboardPage: React.FC = () => {
   const [isCreatingSession, setIsCreatingSession] = useState<boolean>(false);
   const [isUpdatingSessionStatus, setIsUpdatingSessionStatus] = useState<boolean>(false);
 
+  // Session Status Confirmation Modal (Active <-> Closed)
+  const [sessionStatusModal, setSessionStatusModal] = useState<{
+    isOpen: boolean;
+    session: PracticeSessionModel | null;
+    targetStatus: 'Active' | 'Closed';
+  }>({
+    isOpen: false,
+    session: null,
+    targetStatus: 'Closed',
+  });
+
   // Live Code Viewer Modal
   const [viewingStudent, setViewingStudent] = useState<StudentMonitorItem | null>(null);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
@@ -397,22 +408,27 @@ export const TeacherDashboardPage: React.FC = () => {
     }
   };
 
-  // Handler: Toggle Practice Session Status (Active <-> Closed) (PRD Ubah Status Sesi)
-  const handleToggleSessionStatus = async (session: PracticeSessionModel) => {
-    if (!session || !isSupabaseConfigured) return;
-    
+  // Handler: Open Confirmation Modal to Toggle Practice Session Status (PRD Ubah Status Sesi)
+  const handleToggleSessionStatus = (session: PracticeSessionModel) => {
+    if (!session) return;
     const nextStatus = toggleSessionStatus(session.status);
-    const confirmMessage = nextStatus === 'Closed'
-      ? `Tutup sesi "${session.title}"?\n\nSiswa tidak akan dapat mengedit kode atau mengumpulkan tugas baru lagi untuk sesi ini.`
-      : `Buka kembali sesi "${session.title}"?\n\nSiswa akan dapat melanjutkan pengerjaan dan mengirim tugas.`;
+    setSessionStatusModal({
+      isOpen: true,
+      session,
+      targetStatus: nextStatus,
+    });
+  };
 
-    if (!window.confirm(confirmMessage)) return;
+  // Handler: Confirm Session Status Toggle in Modal
+  const handleConfirmToggleSessionStatus = async () => {
+    const { session, targetStatus } = sessionStatusModal;
+    if (!session || !isSupabaseConfigured) return;
 
     setIsUpdatingSessionStatus(true);
     try {
       const { error } = await supabase
         .from('practice_sessions')
-        .update({ status: nextStatus })
+        .update({ status: targetStatus })
         .eq('id', session.id);
 
       if (error) {
@@ -420,7 +436,8 @@ export const TeacherDashboardPage: React.FC = () => {
         return;
       }
 
-      setSessions(prev => prev.map(s => s.id === session.id ? { ...s, status: nextStatus } : s));
+      setSessions(prev => prev.map(s => s.id === session.id ? { ...s, status: targetStatus } : s));
+      setSessionStatusModal({ isOpen: false, session: null, targetStatus: 'Closed' });
     } catch (err: unknown) {
       console.error('Error toggling session status:', err);
       alert('Terjadi kesalahan saat memperbarui status sesi.');
@@ -1072,6 +1089,105 @@ export const TeacherDashboardPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Konfirmasi Ubah Status Sesi (Tutup / Buka Sesi) */}
+      {sessionStatusModal.isOpen && sessionStatusModal.session && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                  sessionStatusModal.targetStatus === 'Closed'
+                    ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                }`}>
+                  {sessionStatusModal.targetStatus === 'Closed' ? (
+                    <Lock className="w-5 h-5" />
+                  ) : (
+                    <Unlock className="w-5 h-5" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">
+                    {sessionStatusModal.targetStatus === 'Closed' ? 'Tutup Sesi Praktik?' : 'Buka Kembali Sesi Praktik?'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Sesi: <strong className="text-white">"{sessionStatusModal.session.title}"</strong>
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSessionStatusModal({ isOpen: false, session: null, targetStatus: 'Closed' })}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Information Warning / Detail */}
+            {sessionStatusModal.targetStatus === 'Closed' ? (
+              <div className="p-3.5 rounded-xl bg-rose-950/30 border border-rose-500/30 text-rose-200 text-xs space-y-1.5 leading-relaxed">
+                <div className="font-semibold text-rose-300 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>Dampak Penutupan Sesi:</span>
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-slate-300 pl-1 text-[11px]">
+                  <li>Siswa <strong>tidak dapat lagi mengedit kode</strong> atau menjalankan autosave.</li>
+                  <li>Siswa <strong>tidak dapat mengumpulkan</strong> pekerjaan baru.</li>
+                  <li>Editor siswa otomatis terkunci menjadi mode <strong>baca saja (read-only)</strong>.</li>
+                </ul>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-emerald-200 text-xs space-y-1.5 leading-relaxed">
+                <div className="font-semibold text-emerald-300 flex items-center gap-1.5">
+                  <Unlock className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Dampak Pembukaan Sesi:</span>
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-slate-300 pl-1 text-[11px]">
+                  <li>Siswa dapat <strong>melanjutkan coding</strong> dan menguji coba program.</li>
+                  <li>Autosave dan pengiriman tugas kembali <strong>diaktifkan</strong> bagi siswa yang belum mengumpulkan.</li>
+                </ul>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setSessionStatusModal({ isOpen: false, session: null, targetStatus: 'Closed' })}
+                disabled={isUpdatingSessionStatus}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmToggleSessionStatus}
+                disabled={isUpdatingSessionStatus}
+                className={`px-4 py-2 rounded-xl text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer disabled:opacity-50 ${
+                  sessionStatusModal.targetStatus === 'Closed'
+                    ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30'
+                    : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
+                }`}
+              >
+                {isUpdatingSessionStatus ? (
+                  <span>Menyimpan...</span>
+                ) : sessionStatusModal.targetStatus === 'Closed' ? (
+                  <>
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Ya, Tutup Sesi</span>
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="w-3.5 h-3.5" />
+                    <span>Ya, Buka Sesi</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
